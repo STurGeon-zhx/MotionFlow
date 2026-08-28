@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist-worker",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "incremental": false
+  },
+  "include": ["src/worker.ts", "src/lib/**/*.ts", "src/remotion/**/*.ts", "src/remotion/**/*.tsx"]
+}
+
