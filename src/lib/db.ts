@@ -44,6 +44,8 @@ export function getDb() {
       effect_snapshot_json TEXT NOT NULL,
       seed INTEGER NOT NULL,
       params_json TEXT NOT NULL,
+      music_name TEXT,
+      music_path TEXT,
       status TEXT NOT NULL,
       progress REAL NOT NULL DEFAULT 0,
       output_path TEXT,
@@ -68,6 +70,13 @@ export function getDb() {
   const jobColumns = db.prepare('PRAGMA table_info(video_jobs)').all() as Array<{name: string}>;
   if (!jobColumns.some((column) => column.name === 'owner_ip')) {
     db.exec('ALTER TABLE video_jobs ADD COLUMN owner_ip TEXT');
+  }
+  const itemColumns = db.prepare('PRAGMA table_info(video_job_items)').all() as Array<{name: string}>;
+  if (!itemColumns.some((column) => column.name === 'music_name')) {
+    db.exec('ALTER TABLE video_job_items ADD COLUMN music_name TEXT');
+  }
+  if (!itemColumns.some((column) => column.name === 'music_path')) {
+    db.exec('ALTER TABLE video_job_items ADD COLUMN music_path TEXT');
   }
   db.exec('CREATE INDEX IF NOT EXISTS idx_jobs_owner_created ON video_jobs(owner_ip, created_at DESC)');
   const workspaceInitialized = db.prepare("SELECT value FROM app_meta WHERE key = 'workspace_images_initialized'").get();

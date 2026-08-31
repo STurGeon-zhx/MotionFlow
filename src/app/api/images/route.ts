@@ -24,6 +24,24 @@ export async function GET() {
   }))});
 }
 
+export async function DELETE() {
+  const db = getDb();
+  const selected = db.prepare(`SELECT i.id, i.file_path,
+      EXISTS(SELECT 1 FROM video_job_items item WHERE item.image_id = i.id) AS used
+    FROM workspace_images workspace
+    JOIN images i ON i.id = workspace.image_id`).all() as Array<{id: string; file_path: string; used: number}>;
+  const unused = selected.filter((image) => image.used === 0);
+  db.transaction(() => {
+    db.prepare('DELETE FROM workspace_images').run();
+    if (unused.length > 0) {
+      const placeholders = unused.map(() => '?').join(',');
+      db.prepare(`DELETE FROM images WHERE id IN (${placeholders})`).run(...unused.map((image) => image.id));
+    }
+  })();
+  await Promise.allSettled(unused.map((image) => fs.rm(image.file_path, {force: true})));
+  return ok({clearedCount: selected.length, retainedForHistoryCount: selected.length - unused.length});
+}
+
 export async function POST(request: Request) {
   const savedPaths: string[] = [];
   const savedImageIds: string[] = [];

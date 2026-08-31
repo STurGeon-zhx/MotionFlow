@@ -46,6 +46,7 @@ export function Workspace() {
   const [breathing, setBreathing] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [resetting, setResetting] = useState(false);
   const [retryingAll, setRetryingAll] = useState(false);
   const [retryingItemId, setRetryingItemId] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
@@ -100,6 +101,21 @@ export function Workspace() {
       await jsonRequest(`/api/images/${image.id}`, {method: 'DELETE'});
       setImages((current) => current.filter((entry) => entry.id !== image.id));
     } catch (error) { setMessage({kind: 'error', text: error instanceof Error ? error.message : '删除失败'}); }
+  }
+
+  async function startNewTask() {
+    setResetting(true);
+    setMessage(null);
+    try {
+      await jsonRequest('/api/images', {method: 'DELETE'});
+      setImages([]);
+      setJob(null);
+      window.history.replaceState({}, '', window.location.pathname);
+    } catch (error) {
+      setMessage({kind: 'error', text: error instanceof Error ? error.message : '清空图片失败'});
+    } finally {
+      setResetting(false);
+    }
   }
 
   function toggleEffect(id: string) {
@@ -208,7 +224,7 @@ export function Workspace() {
           <div className="panel-title-row"><div><span className="eyebrow">生成任务</span><h2>{job ? statusNames[job.status] : '准备生成'}</h2></div>{job && <span className={`status-pill status-${job.status}`}>{statusNames[job.status]}</span>}</div>
           {!job ? <>
             <div className="estimate-card"><div className="estimate-visual"><Film size={25} /><span>{totalCount || 0}</span></div><div><small>预计生成</small><strong>{images.length} 张图片 × 每张 1 条</strong><p>共 {totalCount} 条 · 每条 5 秒</p></div></div>
-            <div className="summary-list"><Summary label="画面规格" value={`跟随原图 · ${resolution}`} /><Summary label="特效范围" value={`${selectedPoolSize} 个可用`} /><Summary label="入场设置" value={`${introDuration}s · ${intensity === 'weak' ? '弱' : intensity === 'medium' ? '中' : '强'}强度`} /><Summary label="预计输出" value="H.264 MP4" /></div>
+            <div className="summary-list"><Summary label="画面规格" value={`跟随原图 · ${resolution}`} /><Summary label="特效范围" value={`${selectedPoolSize} 个可用`} /><Summary label="入场设置" value={`${introDuration}s · ${intensity === 'weak' ? '弱' : intensity === 'medium' ? '中' : '强'}强度`} /><Summary label="预计输出" value="H.264 MP4 · 自动配乐" /></div>
             <button className="primary-action" disabled={creating || uploading || images.length === 0 || totalCount > 100} onClick={() => void createJob()}>{creating ? <LoaderCircle className="spin" size={18} /> : <Sparkles size={18} />}开始批量生成</button>
             <p className="action-note">本地顺序渲染，可离开当前页面后从历史任务继续查看。</p>
           </> : <>
@@ -222,7 +238,7 @@ export function Workspace() {
               {item.downloadUrl && <a href={item.downloadUrl} aria-label={`下载 ${item.effectName}`}><Download size={16} /></a>}
               {item.status === 'failed' && <button className="item-retry" disabled={retryingItemId === item.id} onClick={() => void retryItem(item.id)} aria-label={`重试 ${item.effectName}`}>{retryingItemId === item.id ? <LoaderCircle className="spin" size={15} /> : <RotateCcw size={15} />}</button>}
             </article>)}</div>
-            <button className="ghost-action" onClick={() => setJob(null)}><ImagePlus size={16} />创建新任务</button>
+            <button className="ghost-action" disabled={resetting} onClick={() => void startNewTask()}>{resetting ? <LoaderCircle className="spin" size={16} /> : <ImagePlus size={16} />}{resetting ? '正在清空图片…' : '创建新任务'}</button>
             <Link className="history-link" href="/history">查看全部历史任务</Link>
           </>}
         </aside>

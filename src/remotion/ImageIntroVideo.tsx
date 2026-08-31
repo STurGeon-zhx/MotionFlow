@@ -1,5 +1,5 @@
 import React from 'react';
-import {AbsoluteFill, Img, interpolate, useCurrentFrame} from 'remotion';
+import {AbsoluteFill, Audio, Img, interpolate, useCurrentFrame} from 'remotion';
 import {DURATION_IN_FRAMES} from '@/lib/video-config';
 import {atomValue, resolveAnimationFrame, resolveBreathingScale} from './animation';
 import {CreativeVisual} from './CreativeVisual';
@@ -58,6 +58,9 @@ export const ImageIntroVideo: React.FC<ImageIntroVideoProps> = (props) => {
 
   return (
     <AbsoluteFill style={{backgroundColor: '#081426', overflow: 'hidden'}}>
+      {props.backgroundMusicSrc && (
+        <Audio src={props.backgroundMusicSrc} trimBefore={0} trimAfter={DURATION_IN_FRAMES} volume={0.35} />
+      )}
       <Img src={props.imageSrc} style={{width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(44px) brightness(.58) saturate(1.1)', transform: 'scale(1.16)', opacity: backgroundEntryOpacity}} />
       {motionBlur > .2 && [3, 2, 1].map((layer) => (
         <AbsoluteFill key={layer} style={{opacity: Math.min(.18, motionBlur / 80), transform: `translateX(${-motionBlur * layer}px)`}}>

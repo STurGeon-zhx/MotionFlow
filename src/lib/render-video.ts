@@ -6,6 +6,7 @@ import {getSourceDimensions} from './video-config';
 import {dataRoot, ensureStorage} from './storage';
 import type {ClaimedRenderItem} from './jobs';
 import type {ImageIntroVideoProps} from '@/remotion/types';
+import {getMusicMimeType} from './music';
 
 let serveUrlPromise: Promise<string> | null = null;
 
@@ -26,9 +27,11 @@ async function getServeUrl() {
 
 export async function renderClaimedItem(item: ClaimedRenderItem, outputPath: string, onProgress?: (progress: number) => void) {
   const image = await fs.readFile(item.image.file_path);
+  const music = item.music_path ? await fs.readFile(item.music_path) : null;
   const dimensions = getSourceDimensions(item.image.width, item.image.height, item.request.resolution);
   const inputProps: ImageIntroVideoProps = {
     imageSrc: `data:${item.image.mime_type};base64,${image.toString('base64')}`,
+    backgroundMusicSrc: music ? `data:${getMusicMimeType(item.music_path!)};base64,${music.toString('base64')}` : null,
     effect: item.effect,
     ...dimensions,
     introFrames: Math.round(item.request.introDurationSec * 30),
@@ -45,7 +48,9 @@ export async function renderClaimedItem(item: ClaimedRenderItem, outputPath: str
     codec: 'h264',
     outputLocation: outputPath,
     pixelFormat: 'yuv420p',
-    muted: true,
+    muted: !music,
+    audioCodec: music ? 'aac' : null,
+    audioBitrate: music ? '192k' : null,
     concurrency: 2,
     timeoutInMilliseconds: 120_000,
     crf: item.request.resolution === '1080p' ? 18 : 20,

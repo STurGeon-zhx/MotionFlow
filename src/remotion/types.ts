@@ -9,6 +9,7 @@ export type RandomizedParams = {
 
 export type ImageIntroVideoProps = {
   imageSrc: string;
+  backgroundMusicSrc: string | null;
   effect: EffectPreset;
   width: number;
   height: number;
@@ -20,6 +21,7 @@ export type ImageIntroVideoProps = {
 
 export const defaultVideoProps: ImageIntroVideoProps = {
   imageSrc: '/preview-placeholder.png',
+  backgroundMusicSrc: null,
   effect: {
     id: 'preview', name: '中心放大进入', type: 'basic', category: 'basic', description: '', durationFrames: 24,
     atoms: [{type: 'scale', from: .75, to: 1, startFrame: 0, endFrame: 24, easing: 'easeOutCubic'}], enabled: true,

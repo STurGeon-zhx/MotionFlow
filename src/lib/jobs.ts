@@ -5,6 +5,7 @@ import {allocateEffects, getEffectPool, resolvedRandomParams} from './effect-all
 import {createJobSchema, type CreateJobInput, type EffectPreset} from './schema';
 import {outputsDir, tempDir} from './storage';
 import {getFriendlyRenderError, getRenderErrorMessage} from './render-retry';
+import {getMusicTrackForIndex, listMusicTracks} from './music';
 
 type ImageRow = {
   id: string; original_name: string; stored_name: string; file_path: string; mime_type: string;
@@ -17,6 +18,7 @@ type JobRow = {
 export type ItemRow = {
   id: string; job_id: string; image_id: string; effect_id: string; effect_name: string;
   effect_snapshot_json: string; seed: number; params_json: string; status: string; progress: number;
+  music_name: string | null; music_path: string | null;
   output_path: string | null; error_message: string | null; created_at: string; updated_at: string;
 };
 
@@ -36,6 +38,9 @@ export function createVideoJob(rawInput: unknown, ownerIp: string) {
   const now = new Date().toISOString();
   const total = input.imageIds.length * input.countPerImage;
   const seedBase = Math.floor(Math.random() * 2_000_000_000);
+  const musicTracks = listMusicTracks();
+  if (musicTracks.length === 0) throw new Error('音乐库为空，请先在 assets/music 中添加支持的音频文件');
+  let musicIndex = 0;
 
   db.transaction(() => {
     db.prepare(`INSERT INTO video_jobs
@@ -43,15 +48,17 @@ export function createVideoJob(rawInput: unknown, ownerIp: string) {
       VALUES (?, ?, 'pending', ?, ?, 0, 0, ?, ?)`)
       .run(jobId, ownerIp, JSON.stringify(input), total, now, now);
     const insertItem = db.prepare(`INSERT INTO video_job_items
-      (id, job_id, image_id, effect_id, effect_name, effect_snapshot_json, seed, params_json, status, progress, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'waiting', 0, ?, ?)`);
+      (id, job_id, image_id, effect_id, effect_name, effect_snapshot_json, seed, params_json, music_name, music_path, status, progress, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'waiting', 0, ?, ?)`);
     input.imageIds.forEach((imageId, imageIndex) => {
       const effectsForImage = allocateEffects(pool, input.countPerImage, input.allowDuplicate, seedBase + imageIndex * 997);
       effectsForImage.forEach((effect, itemIndex) => {
         const seed = seedBase + imageIndex * 1009 + itemIndex * 37;
+        const music = getMusicTrackForIndex(musicIndex, musicTracks);
+        musicIndex += 1;
         insertItem.run(
           makeId('item'), jobId, imageId, effect.id, effect.name, JSON.stringify(effect), seed,
-          JSON.stringify(resolvedRandomParams(seed)), now, now,
+          JSON.stringify(resolvedRandomParams(seed)), music?.name ?? null, music?.filePath ?? null, now, now,
         );
       });
     });
@@ -65,6 +72,7 @@ function serializeItem(row: ItemRow) {
     imageId: row.image_id,
     effectId: row.effect_id,
     effectName: row.effect_name,
+    musicName: row.music_name,
     status: row.status,
     progress: row.progress,
     previewUrl: row.status === 'completed' ? `/api/video-files/${row.id}` : null,

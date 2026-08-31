@@ -4,7 +4,7 @@ import {beforeEach, describe, expect, it} from 'vitest';
 import {getDb} from '@/lib/db';
 import {createVideoJob, getCompletedItem, getJob, listJobs, recomputeJob, retryFailedItem, retryFailedItems} from '@/lib/jobs';
 import {ensureStorage, uploadsDir} from '@/lib/storage';
-import {GET as listWorkspaceImages} from '@/app/api/images/route';
+import {DELETE as clearWorkspaceImages, GET as listWorkspaceImages} from '@/app/api/images/route';
 import {DELETE as removeWorkspaceImage} from '@/app/api/images/[id]/route';
 import {createJobSchema} from '@/lib/schema';
 
@@ -31,9 +31,10 @@ describe('任务服务', () => {
 
   it('创建父任务与指定数量的子任务', () => {
     const created = createVideoJob({imageIds: ['img_test_1'], ratio: 'source', durationSec: 5, countPerImage: 1, effectMode: 'basic_only', selectedCategories: [], selectedEffectIds: [], allowDuplicate: false, introDurationSec: .8, intensity: 'medium', enableBreathing: true, resolution: '720p'}, ownerA);
-    const job = getJob(created.jobId, ownerA) as unknown as {totalCount: number; items: unknown[]};
+    const job = getJob(created.jobId, ownerA) as unknown as {totalCount: number; items: Array<{musicName: string | null}>};
     expect(job.totalCount).toBe(1);
     expect(job.items).toHaveLength(1);
+    expect(job.items[0].musicName).toBeTruthy();
   });
 
   it('聚合部分失败状态并可重新排队失败项', () => {
@@ -73,6 +74,21 @@ describe('任务服务', () => {
     expect(deleteBody.retainedForHistory).toBe(true);
     expect(db.prepare('SELECT id FROM images WHERE id = ?').get('img_test_1')).toBeTruthy();
     expect(db.prepare('SELECT image_id FROM workspace_images WHERE image_id = ?').get('img_test_1')).toBeUndefined();
+  });
+
+  it('创建新任务时清空工作区并保留历史任务使用的图片', async () => {
+    const db = getDb();
+    const now = new Date().toISOString();
+    db.prepare('INSERT INTO workspace_images (image_id, position, selected_at) VALUES (?, ?, ?)').run('img_test_1', 0, now);
+    db.prepare('INSERT INTO workspace_images (image_id, position, selected_at) VALUES (?, ?, ?)').run('img_test_2', 1, now);
+    createVideoJob({imageIds: ['img_test_1'], ratio: 'source', durationSec: 5, countPerImage: 1, effectMode: 'basic_only', selectedCategories: [], selectedEffectIds: [], allowDuplicate: false, introDurationSec: 1.2, intensity: 'medium', enableBreathing: true, resolution: '720p'}, ownerA);
+
+    const response = await clearWorkspaceImages();
+    const body = await response.json() as {clearedCount: number; retainedForHistoryCount: number};
+    expect(body).toMatchObject({clearedCount: 2, retainedForHistoryCount: 1});
+    expect(db.prepare('SELECT COUNT(*) AS count FROM workspace_images').get()).toEqual({count: 0});
+    expect(db.prepare('SELECT id FROM images WHERE id = ?').get('img_test_1')).toBeTruthy();
+    expect(db.prepare('SELECT id FROM images WHERE id = ?').get('img_test_2')).toBeUndefined();
   });
 
   it('按客户端 IP 隔离任务列表、详情、重试和视频访问', () => {
