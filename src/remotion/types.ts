@@ -26,7 +26,7 @@ export const defaultVideoProps: ImageIntroVideoProps = {
   },
   width: 1080,
   height: 1920,
-  introFrames: 24,
+  introFrames: 36,
   intensity: 'medium',
   enableBreathing: true,
   randomParams: {scaleMultiplier: 1, translateMultiplier: 1, rotateMultiplier: 1, blurMultiplier: 1},

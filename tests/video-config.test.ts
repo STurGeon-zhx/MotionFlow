@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest';
 import {getDimensions, getSourceDimensions} from '@/lib/video-config';
-import {atomValue} from '@/remotion/animation';
+import {atomValue, resolveAnimationFrame, resolveBreathingScale} from '@/remotion/animation';
 
 describe('视频规格与动画插值', () => {
   it('映射所有比例和清晰度', () => {
@@ -24,5 +24,22 @@ describe('视频规格与动画插值', () => {
     const params = {scaleMultiplier: 1, translateMultiplier: 1, rotateMultiplier: 1, blurMultiplier: 1};
     expect(atomValue(atoms, 'translateX', 0, 24, 36, 0, 'medium', params)).toBe(-200);
     expect(atomValue(atoms, 'translateX', 36, 24, 36, 0, 'medium', params)).toBe(0);
+  });
+
+  it('组合动画在结尾反向执行同一段动画', () => {
+    expect(resolveAnimationFrame(0, 24, 150, true)).toEqual({animationFrame: 0, isExiting: false});
+    expect(resolveAnimationFrame(100, 24, 150, true)).toEqual({animationFrame: 100, isExiting: false});
+    expect(resolveAnimationFrame(126, 24, 150, true)).toEqual({animationFrame: 24, isExiting: true});
+    expect(resolveAnimationFrame(149, 24, 150, true)).toEqual({animationFrame: 0, isExiting: true});
+    expect(resolveAnimationFrame(149, 24, 150, false)).toEqual({animationFrame: 149, isExiting: false});
+  });
+
+  it('镜头呼吸从首帧开始并平滑贯穿转场', () => {
+    expect(resolveBreathingScale(0, 150, true)).toBe(1);
+    expect(resolveBreathingScale(18, 150, true)).toBeGreaterThan(1);
+    expect(Math.abs(resolveBreathingScale(36, 150, true) - resolveBreathingScale(35, 150, true))).toBeLessThan(.001);
+    expect(resolveBreathingScale(130, 150, true)).toBeGreaterThan(1);
+    expect(resolveBreathingScale(149, 150, true)).toBeCloseTo(1, 8);
+    expect(resolveBreathingScale(75, 150, false)).toBe(1);
   });
 });

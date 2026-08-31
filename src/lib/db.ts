@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'node:path';
 import {dataRoot, ensureStorage} from './storage';
+import {MAX_WORKSPACE_IMAGES} from './limits';
 
 type DatabaseHolder = {db?: Database.Database};
 const holder = globalThis as typeof globalThis & DatabaseHolder;
@@ -25,6 +26,7 @@ export function getDb() {
     );
     CREATE TABLE IF NOT EXISTS video_jobs (
       id TEXT PRIMARY KEY,
+      owner_ip TEXT NOT NULL,
       status TEXT NOT NULL,
       request_json TEXT NOT NULL,
       total_count INTEGER NOT NULL,
@@ -49,10 +51,43 @@ export function getDb() {
       created_at TEXT NOT NULL,
       updated_at TEXT NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS workspace_images (
+      image_id TEXT PRIMARY KEY REFERENCES images(id) ON DELETE CASCADE,
+      position INTEGER NOT NULL,
+      selected_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS app_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS idx_items_job ON video_job_items(job_id);
     CREATE INDEX IF NOT EXISTS idx_items_status ON video_job_items(status, created_at);
     CREATE INDEX IF NOT EXISTS idx_jobs_created ON video_jobs(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_workspace_images_position ON workspace_images(position);
   `);
+  const jobColumns = db.prepare('PRAGMA table_info(video_jobs)').all() as Array<{name: string}>;
+  if (!jobColumns.some((column) => column.name === 'owner_ip')) {
+    db.exec('ALTER TABLE video_jobs ADD COLUMN owner_ip TEXT');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_jobs_owner_created ON video_jobs(owner_ip, created_at DESC)');
+  const workspaceInitialized = db.prepare("SELECT value FROM app_meta WHERE key = 'workspace_images_initialized'").get();
+  if (!workspaceInitialized) {
+    const latestJob = db.prepare('SELECT request_json FROM video_jobs ORDER BY created_at DESC LIMIT 1').get() as {request_json: string} | undefined;
+    let imageIds: string[] = [];
+    try {
+      imageIds = latestJob ? (JSON.parse(latestJob.request_json) as {imageIds?: string[]}).imageIds ?? [] : [];
+    } catch {
+      imageIds = [];
+    }
+    if (imageIds.length === 0) {
+      const recent = db.prepare(`SELECT id FROM images ORDER BY created_at DESC LIMIT ${MAX_WORKSPACE_IMAGES}`).all() as Array<{id: string}>;
+      imageIds = recent.reverse().map((image) => image.id);
+    }
+    const insertWorkspaceImage = db.prepare('INSERT OR IGNORE INTO workspace_images (image_id, position, selected_at) VALUES (?, ?, ?)');
+    const now = new Date().toISOString();
+    imageIds.slice(0, MAX_WORKSPACE_IMAGES).forEach((imageId, position) => insertWorkspaceImage.run(imageId, position, now));
+    db.prepare("INSERT OR REPLACE INTO app_meta (key, value) VALUES ('workspace_images_initialized', '1')").run();
+  }
   holder.db = db;
   return db;
 }
@@ -61,4 +96,3 @@ export function closeDbForTests() {
   holder.db?.close();
   holder.db = undefined;
 }
-

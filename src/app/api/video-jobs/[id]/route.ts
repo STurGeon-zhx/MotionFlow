@@ -1,13 +1,13 @@
 import {errorResponse, ok} from '@/lib/api';
+import {getClientIp} from '@/lib/client-ip';
 import {getJob} from '@/lib/jobs';
 
 export const runtime = 'nodejs';
 type Context = {params: Promise<{id: string}>};
 
-export async function GET(_request: Request, {params}: Context) {
+export async function GET(request: Request, {params}: Context) {
   const {id} = await params;
-  const job = getJob(id);
+  const job = getJob(id, getClientIp(request));
   if (!job) return errorResponse(new Error('任务不存在'), 404);
   return ok({job});
 }
-

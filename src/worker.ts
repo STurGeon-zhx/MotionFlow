@@ -1,8 +1,9 @@
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import path from 'node:path';
-import {claimNextItem, completeItem, failItem, recoverInterruptedItems, updateItemProgress} from './lib/jobs';
+import {claimNextItem, completeItem, failItem, recoverInterruptedItems, recordAutomaticRetry, updateItemProgress} from './lib/jobs';
 import {renderClaimedItem} from './lib/render-video';
+import {isRetryableRenderError, MAX_AUTO_RENDER_RETRIES} from './lib/render-retry';
 import {dataRoot, ensureStorage, outputsDir, tempDir} from './lib/storage';
 
 let stopping = false;
@@ -47,15 +48,26 @@ async function run() {
       const temporary = path.join(tempDir, `${item.id}.mp4`);
       const output = path.join(outputsDir, `${item.id}.mp4`);
       try {
-        await fsp.rm(temporary, {force: true});
-        let lastWritten = -1;
-        await renderClaimedItem(item, temporary, (progress) => {
-          const rounded = Math.floor(progress * 100);
-          if (rounded !== lastWritten) {
-            lastWritten = rounded;
-            updateItemProgress(item.id, progress);
+        for (let attempt = 0; attempt <= MAX_AUTO_RENDER_RETRIES; attempt++) {
+          try {
+            await fsp.rm(temporary, {force: true});
+            let lastWritten = -1;
+            await renderClaimedItem(item, temporary, (progress) => {
+              const rounded = Math.floor(progress * 100);
+              if (rounded !== lastWritten) {
+                lastWritten = rounded;
+                updateItemProgress(item.id, progress);
+              }
+            });
+            break;
+          } catch (error) {
+            await fsp.rm(temporary, {force: true});
+            if (attempt >= MAX_AUTO_RENDER_RETRIES || !isRetryableRenderError(error)) throw error;
+            recordAutomaticRetry(item.id, attempt + 1, MAX_AUTO_RENDER_RETRIES, error);
+            console.warn(`[worker] ${item.id} 临时失败，自动重试 ${attempt + 1}/${MAX_AUTO_RENDER_RETRIES}`);
+            await wait((attempt + 1) * 1500);
           }
-        });
+        }
         await fsp.rename(temporary, output);
         completeItem(item, output);
         console.log(`[worker] 完成 ${item.id} / ${item.effect_name}`);

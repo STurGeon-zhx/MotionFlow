@@ -2,15 +2,17 @@ import {ZipArchive} from 'archiver';
 import path from 'node:path';
 import {PassThrough, Readable} from 'node:stream';
 import {errorResponse} from '@/lib/api';
+import {getClientIp} from '@/lib/client-ip';
 import {getCompletedItems, getJob} from '@/lib/jobs';
 
 export const runtime = 'nodejs';
 type Context = {params: Promise<{id: string}>};
 
-export async function GET(_request: Request, {params}: Context) {
+export async function GET(request: Request, {params}: Context) {
   const {id} = await params;
-  if (!getJob(id)) return errorResponse(new Error('任务不存在'), 404);
-  const items = getCompletedItems(id).filter((item) => item.output_path);
+  const ownerIp = getClientIp(request);
+  if (!getJob(id, ownerIp)) return errorResponse(new Error('任务不存在'), 404);
+  const items = getCompletedItems(id, ownerIp).filter((item) => item.output_path);
   if (items.length === 0) return errorResponse(new Error('当前没有可下载的视频'), 409);
   const pass = new PassThrough();
   const archive = new ZipArchive({zlib: {level: 6}});

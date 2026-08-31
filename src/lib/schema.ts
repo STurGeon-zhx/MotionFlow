@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {MAX_WORKSPACE_IMAGES} from './limits';
 
 export const ratioSchema = z.enum(['source', '9:16', '1:1', '16:9']);
 export const resolutionSchema = z.enum(['720p', '1080p']);
@@ -15,16 +16,94 @@ export const atomTypeSchema = z.enum([
   'scale',
   'translateX',
   'translateY',
+  'translateZ',
   'rotate',
+  'rotateX',
+  'skewX',
+  'skewY',
   'opacity',
   'blur',
   'maskReveal',
+  'clipCircle',
+  'wipeX',
+  'wipeY',
   'flash',
   'shake',
   'rgbShift',
   'perspective',
   'glow',
   'motionBlur',
+  'originX',
+  'originY',
+  'visualProgress',
+]);
+
+export const creativeVisualSchema = z.enum([
+  'diamond',
+  'clockWipe',
+  'venetian',
+  'mosaic',
+  'curtain3d',
+  'filmBurn',
+  'scanline',
+  'prism',
+  'letterbox',
+  'zoomEcho',
+  'flipGrid',
+  'shards',
+  'waveBands',
+  'photoStack',
+  'dataScramble',
+  'inkDrops',
+  'aperture',
+  'pagePeel',
+  'paperTear',
+  'kaleidoscope',
+  'barcode',
+  'colorWash',
+  'crtPower',
+  'paintSwipe',
+  'rippleRings',
+  'radialFan',
+  'checkerReveal',
+  'diagonalStrips',
+  'spiralMosaic',
+  'pixelDissolve',
+  'dominoFall',
+  'accordionFold',
+  'origamiFold',
+  'crossSplit',
+  'zipperOpen',
+  'liquidWave',
+  'paintDrips',
+  'elasticBands',
+  'tunnelFrames',
+  'filmStrip',
+  'shutterSnap',
+  'snakeBlocks',
+  'glassPanels',
+  'ribbonTwist',
+  'paperCutLayers',
+  'lightLeak',
+  'lensFlare',
+  'sunburst',
+  'auroraVeil',
+  'bokehBurst',
+  'laserGrid',
+  'lightningFlash',
+  'sparkleTrail',
+  'neonFrame',
+  'rainbowSweep',
+  'negativeFlash',
+  'thermalReveal',
+  'cometStreak',
+  'edgeGlow',
+  'lightColumns',
+  'matrixRain',
+  'waveformReveal',
+  'frostMelt',
+  'chromaBlocks',
+  'rollingCylinder',
 ]);
 
 export const atomSchema = z.object({
@@ -44,11 +123,12 @@ export const effectPresetSchema = z.object({
   description: z.string(),
   durationFrames: z.number().int().positive(),
   atoms: z.array(atomSchema).min(1),
+  visual: creativeVisualSchema.optional(),
   enabled: z.boolean(),
 });
 
 export const createJobSchema = z.object({
-  imageIds: z.array(z.string().min(1)).min(1).max(20),
+  imageIds: z.array(z.string().min(1)).min(1).max(MAX_WORKSPACE_IMAGES),
   ratio: ratioSchema,
   durationSec: z.literal(5).default(5),
   countPerImage: z.literal(1),
@@ -74,6 +154,7 @@ export const createJobSchema = z.object({
 
 export type Atom = z.infer<typeof atomSchema>;
 export type EffectPreset = z.infer<typeof effectPresetSchema>;
+export type CreativeVisual = z.infer<typeof creativeVisualSchema>;
 export type CreateJobInput = z.infer<typeof createJobSchema>;
 export type Ratio = z.infer<typeof ratioSchema>;
 export type Resolution = z.infer<typeof resolutionSchema>;

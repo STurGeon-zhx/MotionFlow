@@ -46,7 +46,8 @@ export async function renderClaimedItem(item: ClaimedRenderItem, outputPath: str
     outputLocation: outputPath,
     pixelFormat: 'yuv420p',
     muted: true,
-    concurrency: '50%',
+    concurrency: 2,
+    timeoutInMilliseconds: 120_000,
     crf: item.request.resolution === '1080p' ? 18 : 20,
     onProgress: ({progress}) => onProgress?.(progress),
   });

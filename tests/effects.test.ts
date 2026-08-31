@@ -10,11 +10,46 @@ const baseInput = createJobSchema.parse({
 });
 
 describe('特效预设与分配', () => {
-  it('提供 10 个基础动画和 15 个组合动画', () => {
-    expect(effects).toHaveLength(25);
-    expect(effects.filter((effect) => effect.type === 'basic')).toHaveLength(10);
-    expect(effects.filter((effect) => effect.type === 'combo')).toHaveLength(15);
+  it('提供 7 个基础动画和 75 个组合动画', () => {
+    expect(effects).toHaveLength(82);
+    expect(effects.filter((effect) => effect.type === 'basic')).toHaveLength(7);
+    expect(effects.filter((effect) => effect.type === 'combo')).toHaveLength(75);
+    expect(new Set(effects.map((effect) => effect.id)).size).toBe(effects.length);
     effects.forEach((effect) => expect(effectPresetSchema.safeParse(effect).success).toBe(true));
+  });
+
+  it('3D 动效使用不同的运动或视觉机制', () => {
+    const threeDEffects = effects.filter((effect) => effect.category === '3d');
+    const signatures = threeDEffects.map((effect) => `${effect.visual ?? 'atomic'}:${[...new Set(effect.atoms.map((entry) => entry.type))].sort().join(',')}`);
+    expect(threeDEffects).toHaveLength(16);
+    expect(new Set(signatures).size).toBe(threeDEffects.length);
+  });
+
+  it('47 个创意转场使用互不重复的视觉机制', () => {
+    const creativeEffects = effects.filter((effect) => effect.visual);
+    expect(creativeEffects).toHaveLength(47);
+    expect(new Set(creativeEffects.map((effect) => effect.visual)).size).toBe(creativeEffects.length);
+  });
+
+  it('其余转场不存在完全相同的原子动画组合', () => {
+    const atomicEffects = effects.filter((effect) => !effect.visual);
+    const signatures = atomicEffects.map((effect) => [...new Set(effect.atoms.map((entry) => entry.type))].sort().join(','));
+    expect(new Set(signatures).size).toBe(atomicEffects.length);
+  });
+
+  it('已移除仅方向或参数不同的相似转场', () => {
+    const removedIds = [
+      'basic_zoom_out', 'basic_slide_right', 'basic_slide_down', 'combo_zoom_blur', 'combo_zoom_flash',
+      'combo_mask_focus', 'combo_push_shake', 'combo_rgb_shake', 'combo_split_assemble', 'combo_camera_exposure',
+      'combo_right_swing_bounce', 'combo_bloom_pulse', 'combo_flash_spin', 'combo_chromatic_zoom', 'combo_soft_mask_drift',
+      'combo_corner_zoom', 'combo_drop_rebound', 'combo_float_focus', 'combo_macro_pullback', 'combo_camera_roll',
+      'combo_rgb_slide', 'combo_glitch_pulse', 'combo_mask_flash', 'combo_circle_reveal', 'combo_soft_cross_push',
+      'creative_shards', 'creative_tunnel_frames', 'creative_waveform_reveal',
+      'creative_light_leak', 'creative_lens_flare', 'creative_sunburst', 'creative_aurora_veil', 'creative_bokeh_burst',
+      'creative_laser_grid', 'creative_lightning_flash', 'creative_sparkle_trail', 'creative_neon_frame', 'creative_rainbow_sweep',
+      'creative_negative_flash', 'creative_thermal_reveal', 'creative_comet_streak', 'creative_edge_glow', 'creative_light_columns',
+    ];
+    expect(effects.some((effect) => removedIds.includes(effect.id))).toBe(false);
   });
 
   it('按模式过滤特效池', () => {

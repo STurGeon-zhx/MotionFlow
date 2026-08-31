@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import fsp from 'node:fs/promises';
 import {Readable} from 'node:stream';
 import {errorResponse} from '@/lib/api';
+import {getClientIp} from '@/lib/client-ip';
 import {getCompletedItem} from '@/lib/jobs';
 
 export const runtime = 'nodejs';
@@ -9,7 +10,7 @@ type Context = {params: Promise<{itemId: string}>};
 
 export async function GET(request: Request, {params}: Context) {
   const {itemId} = await params;
-  const item = getCompletedItem(itemId);
+  const item = getCompletedItem(itemId, getClientIp(request));
   if (!item?.output_path) return errorResponse(new Error('视频不存在或尚未生成'), 404);
   try {
     const stat = await fsp.stat(item.output_path);
@@ -35,4 +36,3 @@ export async function GET(request: Request, {params}: Context) {
     return errorResponse(new Error('视频文件不存在'), 404);
   }
 }
-

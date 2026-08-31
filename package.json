@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k -n web,worker -c blue,magenta \"next dev\" \"tsx watch src/worker.ts\"",
+    "dev": "concurrently -k -n web,worker -c blue,magenta \"tsx server.ts\" \"tsx watch src/worker.ts\"",
     "build": "next build",
-    "start": "concurrently -k -n web,worker -c blue,magenta \"next start\" \"tsx src/worker.ts\"",
+    "start": "concurrently -k -n web,worker -c blue,magenta \"tsx server.ts --production\" \"tsx src/worker.ts\"",
     "worker": "tsx src/worker.ts",
     "test": "vitest run",
     "test:watch": "vitest",

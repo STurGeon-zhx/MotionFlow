@@ -4,13 +4,14 @@ import {getDb} from './db';
 import {allocateEffects, getEffectPool, resolvedRandomParams} from './effect-allocation';
 import {createJobSchema, type CreateJobInput, type EffectPreset} from './schema';
 import {outputsDir, tempDir} from './storage';
+import {getFriendlyRenderError, getRenderErrorMessage} from './render-retry';
 
 type ImageRow = {
   id: string; original_name: string; stored_name: string; file_path: string; mime_type: string;
   width: number; height: number; size_bytes: number; created_at: string;
 };
 type JobRow = {
-  id: string; status: string; request_json: string; total_count: number; completed_count: number;
+  id: string; owner_ip: string | null; status: string; request_json: string; total_count: number; completed_count: number;
   failed_count: number; created_at: string; updated_at: string;
 };
 export type ItemRow = {
@@ -21,7 +22,8 @@ export type ItemRow = {
 
 const makeId = (prefix: string) => `${prefix}_${crypto.randomUUID().replaceAll('-', '').slice(0, 20)}`;
 
-export function createVideoJob(rawInput: unknown) {
+export function createVideoJob(rawInput: unknown, ownerIp: string) {
+  if (!ownerIp || ownerIp === 'unknown') throw new Error('无法识别当前设备 IP，请通过项目启动地址重新访问');
   const input = createJobSchema.parse(rawInput);
   const db = getDb();
   const placeholders = input.imageIds.map(() => '?').join(',');
@@ -37,9 +39,9 @@ export function createVideoJob(rawInput: unknown) {
 
   db.transaction(() => {
     db.prepare(`INSERT INTO video_jobs
-      (id, status, request_json, total_count, completed_count, failed_count, created_at, updated_at)
-      VALUES (?, 'pending', ?, ?, 0, 0, ?, ?)`)
-      .run(jobId, JSON.stringify(input), total, now, now);
+      (id, owner_ip, status, request_json, total_count, completed_count, failed_count, created_at, updated_at)
+      VALUES (?, ?, 'pending', ?, ?, 0, 0, ?, ?)`)
+      .run(jobId, ownerIp, JSON.stringify(input), total, now, now);
     const insertItem = db.prepare(`INSERT INTO video_job_items
       (id, job_id, image_id, effect_id, effect_name, effect_snapshot_json, seed, params_json, status, progress, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'waiting', 0, ?, ?)`);
@@ -90,24 +92,24 @@ function serializeJob(row: JobRow, withItems = false) {
   return {...base, request: input, items: items.map(serializeItem)};
 }
 
-export function getJob(jobId: string) {
-  const row = getDb().prepare('SELECT * FROM video_jobs WHERE id = ?').get(jobId) as JobRow | undefined;
+export function getJob(jobId: string, ownerIp: string) {
+  const row = getDb().prepare('SELECT * FROM video_jobs WHERE id = ? AND owner_ip = ?').get(jobId, ownerIp) as JobRow | undefined;
   return row ? serializeJob(row, true) : null;
 }
 
-export function listJobs(page = 1, pageSize = 12) {
+export function listJobs(ownerIp: string, page = 1, pageSize = 12) {
   const db = getDb();
   const safeSize = Math.min(Math.max(pageSize, 1), 50);
   const safePage = Math.max(page, 1);
-  const total = (db.prepare('SELECT COUNT(*) AS count FROM video_jobs').get() as {count: number}).count;
-  const rows = db.prepare('SELECT * FROM video_jobs ORDER BY created_at DESC LIMIT ? OFFSET ?')
-    .all(safeSize, (safePage - 1) * safeSize) as JobRow[];
+  const total = (db.prepare('SELECT COUNT(*) AS count FROM video_jobs WHERE owner_ip = ?').get(ownerIp) as {count: number}).count;
+  const rows = db.prepare('SELECT * FROM video_jobs WHERE owner_ip = ? ORDER BY created_at DESC LIMIT ? OFFSET ?')
+    .all(ownerIp, safeSize, (safePage - 1) * safeSize) as JobRow[];
   return {jobs: rows.map((row) => serializeJob(row)), total, page: safePage, pageSize: safeSize};
 }
 
-export function retryFailedItems(jobId: string) {
+export function retryFailedItems(jobId: string, ownerIp: string) {
   const db = getDb();
-  const exists = db.prepare('SELECT id FROM video_jobs WHERE id = ?').get(jobId);
+  const exists = db.prepare('SELECT id FROM video_jobs WHERE id = ? AND owner_ip = ?').get(jobId, ownerIp);
   if (!exists) return null;
   const now = new Date().toISOString();
   const result = db.prepare(`UPDATE video_job_items
@@ -115,6 +117,21 @@ export function retryFailedItems(jobId: string) {
     WHERE job_id = ? AND status = 'failed'`).run(now, jobId);
   recomputeJob(jobId);
   return {retriedCount: result.changes};
+}
+
+export function retryFailedItem(itemId: string, ownerIp: string) {
+  const db = getDb();
+  const item = db.prepare(`SELECT item.id, item.job_id, item.status
+    FROM video_job_items item
+    JOIN video_jobs job ON job.id = item.job_id
+    WHERE item.id = ? AND job.owner_ip = ?`).get(itemId, ownerIp) as {id: string; job_id: string; status: string} | undefined;
+  if (!item) return null;
+  if (item.status !== 'failed') return {jobId: item.job_id, retried: false};
+  const result = db.prepare(`UPDATE video_job_items
+    SET status = 'waiting', progress = 0, error_message = NULL, output_path = NULL, updated_at = ?
+    WHERE id = ? AND status = 'failed'`).run(new Date().toISOString(), itemId);
+  recomputeJob(item.job_id);
+  return {jobId: item.job_id, retried: result.changes === 1};
 }
 
 export function recomputeJob(jobId: string) {
@@ -179,6 +196,12 @@ export function updateItemProgress(itemId: string, progress: number) {
     .run(Math.max(0, Math.min(1, progress)), new Date().toISOString(), itemId);
 }
 
+export function recordAutomaticRetry(itemId: string, retryNumber: number, maxRetries: number, error: unknown) {
+  const detail = getRenderErrorMessage(error).slice(0, 500);
+  getDb().prepare("UPDATE video_job_items SET progress = 0, error_message = ?, updated_at = ? WHERE id = ? AND status = 'rendering'")
+    .run(`临时渲染异常，正在自动重试 ${retryNumber}/${maxRetries}：${detail}`, new Date().toISOString(), itemId);
+}
+
 export function completeItem(item: ItemRow, outputPath: string) {
   getDb().prepare("UPDATE video_job_items SET status = 'completed', progress = 1, output_path = ?, error_message = NULL, updated_at = ? WHERE id = ?")
     .run(outputPath, new Date().toISOString(), item.id);
@@ -186,16 +209,21 @@ export function completeItem(item: ItemRow, outputPath: string) {
 }
 
 export function failItem(item: ItemRow, error: unknown) {
-  const message = error instanceof Error ? error.message : String(error);
+  const message = getFriendlyRenderError(error);
   getDb().prepare("UPDATE video_job_items SET status = 'failed', progress = 0, error_message = ?, updated_at = ? WHERE id = ?")
     .run(message.slice(0, 1000), new Date().toISOString(), item.id);
   recomputeJob(item.job_id);
 }
 
-export function getCompletedItem(itemId: string) {
-  return getDb().prepare("SELECT * FROM video_job_items WHERE id = ? AND status = 'completed'").get(itemId) as ItemRow | undefined;
+export function getCompletedItem(itemId: string, ownerIp: string) {
+  return getDb().prepare(`SELECT item.* FROM video_job_items item
+    JOIN video_jobs job ON job.id = item.job_id
+    WHERE item.id = ? AND item.status = 'completed' AND job.owner_ip = ?`).get(itemId, ownerIp) as ItemRow | undefined;
 }
 
-export function getCompletedItems(jobId: string) {
-  return getDb().prepare("SELECT * FROM video_job_items WHERE job_id = ? AND status = 'completed' ORDER BY created_at, id").all(jobId) as ItemRow[];
+export function getCompletedItems(jobId: string, ownerIp: string) {
+  return getDb().prepare(`SELECT item.* FROM video_job_items item
+    JOIN video_jobs job ON job.id = item.job_id
+    WHERE item.job_id = ? AND item.status = 'completed' AND job.owner_ip = ?
+    ORDER BY item.created_at, item.id`).all(jobId, ownerIp) as ItemRow[];
 }
