@@ -34,6 +34,11 @@ export function resolveBreathingScale(frame: number, totalFrames: number, enable
   return 1 + (1 - Math.cos(progress)) * .006;
 }
 
+export function resolveLoopFrame(frame: number, loopFrames: number) {
+  const safeLoopFrames = Math.max(2, Math.round(loopFrames));
+  return ((Math.floor(frame) % safeLoopFrames) + safeLoopFrames) % safeLoopFrames;
+}
+
 export function atomValue(
   atoms: Atom[], type: Atom['type'], frame: number, presetFrames: number, introFrames: number,
   fallback: number, intensity: Intensity, params: RandomizedParams,

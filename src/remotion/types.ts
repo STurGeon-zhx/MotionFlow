@@ -19,6 +19,16 @@ export type ImageIntroVideoProps = {
   randomParams: RandomizedParams;
 };
 
+export type ThreeImageMotionVideoProps = {
+  imageSrcs: [string, string, string];
+  backgroundMusicSrc: string | null;
+  width: number;
+  height: number;
+  motionSpeed: number;
+  motionAmplitude: number;
+  motionSeed: number;
+};
+
 export const defaultVideoProps: ImageIntroVideoProps = {
   imageSrc: '/preview-placeholder.png',
   backgroundMusicSrc: null,
@@ -32,4 +42,14 @@ export const defaultVideoProps: ImageIntroVideoProps = {
   intensity: 'medium',
   enableBreathing: true,
   randomParams: {scaleMultiplier: 1, translateMultiplier: 1, rotateMultiplier: 1, blurMultiplier: 1},
+};
+
+export const defaultThreeImageMotionProps: ThreeImageMotionVideoProps = {
+  imageSrcs: ['/preview-placeholder.png', '/preview-placeholder.png', '/preview-placeholder.png'],
+  backgroundMusicSrc: null,
+  width: 1080,
+  height: 1920,
+  motionSpeed: 0.8,
+  motionAmplitude: 0.025,
+  motionSeed: 1,
 };

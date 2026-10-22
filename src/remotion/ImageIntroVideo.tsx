@@ -1,16 +1,25 @@
 import React from 'react';
 import {AbsoluteFill, Audio, Img, interpolate, useCurrentFrame} from 'remotion';
-import {DURATION_IN_FRAMES} from '@/lib/video-config';
-import {atomValue, resolveAnimationFrame, resolveBreathingScale} from './animation';
+import {DURATION_IN_FRAMES, REFERENCE_LIGHT_LOOP_IN_FRAMES} from '@/lib/video-config';
+import {atomValue, resolveAnimationFrame, resolveBreathingScale, resolveLoopFrame} from './animation';
 import {CreativeVisual} from './CreativeVisual';
 import type {ImageIntroVideoProps} from './types';
 
 export const ImageIntroVideo: React.FC<ImageIntroVideoProps> = (props) => {
   const frame = useCurrentFrame();
   const {effect, introFrames, intensity, randomParams} = props;
-  const {animationFrame, isExiting} = resolveAnimationFrame(frame, introFrames, DURATION_IN_FRAMES, effect.type === 'combo');
+  const {animationFrame, isExiting} = resolveAnimationFrame(
+    frame,
+    introFrames,
+    DURATION_IN_FRAMES,
+    effect.type === 'combo' && effect.category !== 'reference_light',
+  );
   const value = (type: Parameters<typeof atomValue>[1], fallback: number) =>
     atomValue(effect.atoms, type, animationFrame, effect.durationFrames, introFrames, fallback, intensity, randomParams);
+  const referenceLightLoopFrame = resolveLoopFrame(frame, REFERENCE_LIGHT_LOOP_IN_FRAMES);
+  const referenceLightValue = (type: Parameters<typeof atomValue>[1], fallback: number) =>
+    atomValue(effect.atoms, type, referenceLightLoopFrame, effect.durationFrames, REFERENCE_LIGHT_LOOP_IN_FRAMES - 1, fallback, intensity, randomParams);
+  const lightValue = effect.category === 'reference_light' ? referenceLightValue : value;
   const scale = value('scale', 1);
   const translateX = value('translateX', 0);
   const translateY = value('translateY', 0);
@@ -28,15 +37,15 @@ export const ImageIntroVideo: React.FC<ImageIntroVideoProps> = (props) => {
   const clipCircle = value('clipCircle', 100);
   const wipeX = value('wipeX', 0);
   const wipeY = value('wipeY', 0);
-  const flash = value('flash', 0);
+  const flash = lightValue('flash', 0);
   const shake = value('shake', 0);
   const rgbShift = value('rgbShift', 0);
   const perspective = value('perspective', 0);
-  const glow = value('glow', 0);
+  const glow = lightValue('glow', 0);
   const motionBlur = value('motionBlur', 0);
   const originX = value('originX', 50);
   const originY = value('originY', 50);
-  const visualProgress = value('visualProgress', 1);
+  const visualProgress = lightValue('visualProgress', 1);
   const shakeX = shake * Math.sin(frame * 2.45);
   const shakeY = shake * .55 * Math.cos(frame * 2.1);
   const breathing = resolveBreathingScale(frame, DURATION_IN_FRAMES, props.enableBreathing);

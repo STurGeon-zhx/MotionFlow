@@ -23,3 +23,6 @@ export function getSourceDimensions(sourceWidth: number, sourceHeight: number, r
 
 export const FPS = 30;
 export const DURATION_IN_FRAMES = 150;
+export const REFERENCE_LIGHT_LOOP_IN_FRAMES = FPS * 2;
+export const THREE_IMAGE_DURATION_IN_FRAMES = 450;
+export const FRAMES_PER_SEQUENCE_IMAGE = 150;

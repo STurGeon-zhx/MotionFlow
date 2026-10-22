@@ -12,7 +12,11 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
-    "render:smoke": "tsx scripts/render-smoke.ts"
+    "render:smoke": "tsx scripts/render-smoke.ts",
+    "render:sequence-smoke": "tsx scripts/render-sequence-smoke.ts",
+    "render:benchmark": "tsx scripts/render-throughput-benchmark.ts",
+    "package:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1",
+    "package:desktop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop.ps1"
   },
   "dependencies": {
     "@remotion/bundler": "4.0.518",
@@ -37,6 +41,7 @@
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.5",
     "concurrently": "^10.0.5",
+    "electron": "^44.3.0",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.3.3",
     "tsx": "^4.23.12",

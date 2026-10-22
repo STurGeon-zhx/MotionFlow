@@ -1,5 +1,5 @@
 import {z} from 'zod';
-import {MAX_WORKSPACE_IMAGES} from './limits';
+import {MAX_SEQUENCE_IMAGES, MAX_WORKSPACE_IMAGES} from './limits';
 
 export const ratioSchema = z.enum(['source', '9:16', '1:1', '16:9']);
 export const resolutionSchema = z.enum(['720p', '1080p']);
@@ -99,6 +99,22 @@ export const creativeVisualSchema = z.enum([
   'cometStreak',
   'edgeGlow',
   'lightColumns',
+  'radialClarity',
+  'fireworkCrown',
+  'cornerFountains',
+  'glitterRain',
+  'starGlints',
+  'haloShockwave',
+  'luminousRibbon',
+  'flashCluster',
+  'goldenDust',
+  'celebrationPyro',
+  'prismaticFireworks',
+  'polaroidSparkPop',
+  'chromaticStarWash',
+  'radialRushFocus',
+  'splitFocusRush',
+  'tunnelSnapClarity',
   'matrixRain',
   'waveformReveal',
   'frostMelt',
@@ -119,7 +135,7 @@ export const effectPresetSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   type: z.enum(['basic', 'combo']),
-  category: z.enum(['basic', 'combo', 'dynamic', 'glitch', 'camera', '3d', 'light']),
+  category: z.enum(['basic', 'combo', 'dynamic', 'glitch', 'camera', '3d', 'light', 'reference_light']),
   description: z.string(),
   durationFrames: z.number().int().positive(),
   atoms: z.array(atomSchema).min(1),
@@ -127,7 +143,10 @@ export const effectPresetSchema = z.object({
   enabled: z.boolean(),
 });
 
-export const createJobSchema = z.object({
+export const toolTypeSchema = z.enum(['single_intro', 'three_image_motion']);
+
+export const singleIntroJobSchema = z.object({
+  toolType: z.literal('single_intro').default('single_intro'),
   imageIds: z.array(z.string().min(1)).min(1).max(MAX_WORKSPACE_IMAGES),
   ratio: ratioSchema,
   durationSec: z.literal(5).default(5),
@@ -152,10 +171,34 @@ export const createJobSchema = z.object({
   }
 });
 
+export const threeImageMotionJobSchema = z.object({
+  toolType: z.literal('three_image_motion'),
+  imageIds: z.array(z.string().min(1)).min(3).max(MAX_SEQUENCE_IMAGES),
+  ratio: z.literal('source').default('source'),
+  durationSec: z.literal(15).default(15),
+  secondsPerImage: z.literal(5).default(5),
+  transition: z.literal('cut').default('cut'),
+  motionPath: z.literal('smooth_loop').default('smooth_loop'),
+  edgeMode: z.literal('auto_zoom').default('auto_zoom'),
+  motionSpeed: z.number().min(0.3).max(1.2),
+  motionAmplitude: z.number().min(0.01).max(0.15),
+  enableMusic: z.boolean().default(true),
+  resolution: resolutionSchema,
+}).superRefine((value, ctx) => {
+  if (value.imageIds.length % 3 !== 0) {
+    ctx.addIssue({code: 'custom', path: ['imageIds'], message: '三图微动模式的图片数量必须是 3 的倍数'});
+  }
+});
+
+export const createJobSchema = z.union([singleIntroJobSchema, threeImageMotionJobSchema]);
+
 export type Atom = z.infer<typeof atomSchema>;
 export type EffectPreset = z.infer<typeof effectPresetSchema>;
 export type CreativeVisual = z.infer<typeof creativeVisualSchema>;
 export type CreateJobInput = z.infer<typeof createJobSchema>;
+export type SingleIntroJobInput = z.infer<typeof singleIntroJobSchema>;
+export type ThreeImageMotionJobInput = z.infer<typeof threeImageMotionJobSchema>;
+export type ToolType = z.infer<typeof toolTypeSchema>;
 export type Ratio = z.infer<typeof ratioSchema>;
 export type Resolution = z.infer<typeof resolutionSchema>;
 export type Intensity = z.infer<typeof intensitySchema>;

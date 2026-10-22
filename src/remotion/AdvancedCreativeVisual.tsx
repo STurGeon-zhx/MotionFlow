@@ -18,12 +18,21 @@ export const advancedCreativeVisuals = new Set<CreativeVisual>([
   'lightLeak', 'lensFlare', 'sunburst', 'auroraVeil', 'bokehBurst',
   'laserGrid', 'lightningFlash', 'sparkleTrail', 'neonFrame', 'rainbowSweep',
   'negativeFlash', 'thermalReveal', 'cometStreak', 'edgeGlow', 'lightColumns',
+  'radialClarity', 'fireworkCrown', 'cornerFountains', 'glitterRain', 'starGlints',
+  'haloShockwave', 'luminousRibbon', 'flashCluster', 'goldenDust', 'celebrationPyro',
+  'prismaticFireworks', 'polaroidSparkPop', 'chromaticStarWash',
+  'radialRushFocus', 'splitFocusRush', 'tunnelSnapClarity',
   'matrixRain', 'waveformReveal', 'frostMelt', 'chromaBlocks', 'rollingCylinder',
 ]);
 
 const clamp = (value: number) => Math.max(0, Math.min(1, value));
 const range = (count: number) => Array.from({length: count}, (_, index) => index);
 const seeded = (index: number, salt = 0) => ((index * 47 + salt * 31 + 17) % 101) / 100;
+const lightSeed = (index: number, salt = 0) => {
+  const value = Math.sin((index + 1) * 12.9898 + (salt + 1) * 78.233) * 43758.5453;
+  return value - Math.floor(value);
+};
+const pulse = (progress: number, center: number, width: number) => clamp(1 - Math.abs(progress - center) / width);
 
 export const AdvancedCreativeVisual: React.FC<Props> = ({visual, progress, imageSrc, imageStyle, isExiting}) => {
   const p = clamp(progress);
@@ -39,6 +48,32 @@ export const AdvancedCreativeVisual: React.FC<Props> = ({visual, progress, image
     const bottom = 100 - (row + 1) * 100 / rows;
     return piece(key, `inset(${top}% ${right}% ${bottom}% ${left}%)`, style);
   };
+  const lightParticleBurst = (salt: number, count = 84, originX = 50, originY = 50, spread = 1) => (
+    <AbsoluteFill style={{mixBlendMode: 'screen', overflow: 'hidden'}}>
+      <AbsoluteFill style={{
+        opacity: pulse(p, .12, .16) * .72,
+        background: `radial-gradient(circle at ${originX}% ${originY}%, rgba(255,255,255,.98) 0 2%, rgba(254,240,138,.68) 7%, rgba(147,197,253,.3) 16%, transparent 38%)`,
+      }} />
+      <svg viewBox="0 0 1000 1000" preserveAspectRatio="none" style={{position: 'absolute', inset: 0, width: '100%', height: '100%', filter: 'drop-shadow(0 0 9px rgba(255,255,255,.95))'}}>
+        {range(count).map((index) => {
+          const delay = lightSeed(index, salt) * .18;
+          const local = clamp((p - delay) / .82);
+          const angle = lightSeed(index, salt + 3) * Math.PI * 2;
+          const distance = local * (90 + lightSeed(index, salt + 7) * 520) * spread;
+          const x = originX * 10 + Math.cos(angle) * distance;
+          const y = originY * 10 + Math.sin(angle) * distance;
+          const trail = 18 + lightSeed(index, salt + 13) * 42;
+          const size = 2.4 + lightSeed(index, salt + 17) * 7.5;
+          const opacity = pulse(local, .46, .54) * (.68 + lightSeed(index, salt + 19) * .32);
+          const color = index % 4 === 0 ? '#ffffff' : index % 4 === 1 ? '#fef08a' : index % 4 === 2 ? '#bae6fd' : '#f9a8d4';
+          return <g key={`${salt}-${index}`} opacity={opacity}>
+            <line x1={x - Math.cos(angle) * trail} y1={y - Math.sin(angle) * trail} x2={x} y2={y} stroke={color} strokeWidth={Math.max(1.5, size * .5)} strokeLinecap="round" />
+            <circle cx={x} cy={y} r={size} fill={color} />
+          </g>;
+        })}
+      </svg>
+    </AbsoluteFill>
+  );
 
   if (visual === 'radialFan') {
     return <AbsoluteFill>{range(12).map((index) => {
@@ -254,6 +289,228 @@ export const AdvancedCreativeVisual: React.FC<Props> = ({visual, progress, image
       const local = clamp((p - seeded(index, 7) * .25) / .72);
       return <div key={index} style={{position: 'absolute', left: `${index * width}%`, top: `${-100 + local * 100}%`, width: `${width * .72}%`, height: '100%', opacity: (1 - local) * .8, background: 'linear-gradient(180deg,transparent,#fff7ae 40%,#93c5fd 75%,transparent)', filter: 'blur(7px)'}} />;
     })}</AbsoluteFill></AbsoluteFill>;
+  }
+
+  if (visual === 'radialClarity') {
+    const strength = Math.pow(1 - p, 1.45);
+    return <AbsoluteFill>
+      {image('clarity-base')}
+      {range(7).map((index) => image(`clarity-echo-${index}`, {
+        opacity: strength * (.23 - index * .022),
+        transform: `scale(${1 + strength * (.07 + index * .05)})`,
+        filter: `blur(${strength * (3 + index * 2.5)}px) brightness(${1 + strength * .6})`,
+        mixBlendMode: 'screen',
+      }))}
+      <AbsoluteFill style={{opacity: strength * .95, mixBlendMode: 'screen', background: 'repeating-conic-gradient(from 0deg at 50% 50%, rgba(255,255,255,.98) 0 1.8deg, transparent 1.8deg 5deg)', filter: `blur(${1 + strength * 4}px)`, transform: `scale(${.32 + p * 1.28})`}} />
+      {lightParticleBurst(3, 118, 50, 50, 1.32)}
+      <AbsoluteFill style={{opacity: strength * .78, background: 'radial-gradient(circle at 50% 50%, white 0 5%, rgba(219,234,254,.82) 13%, transparent 52%)', mixBlendMode: 'screen'}} />
+    </AbsoluteFill>;
+  }
+
+  if (visual === 'fireworkCrown') {
+    const centers = [{x: 8, y: 22}, {x: 28, y: 10}, {x: 50, y: 18}, {x: 72, y: 8}, {x: 92, y: 23}];
+    return <AbsoluteFill>{image('crown-image')}<svg viewBox="0 0 1000 1000" preserveAspectRatio="none" style={{position: 'absolute', inset: 0, width: '100%', height: '100%', mixBlendMode: 'screen'}}>
+      {centers.map((center, burstIndex) => {
+        const local = pulse(p, .12 + burstIndex * .17, .23);
+        return <g key={burstIndex} style={{opacity: local, filter: `drop-shadow(0 0 ${8 + local * 18}px ${burstIndex === 1 ? '#fef08a' : '#bfdbfe'})`}}>
+          {range(28).map((ray) => {
+            const angle = ray / 28 * Math.PI * 2;
+            const inner = 16 + local * 18;
+            const outer = inner + local * (135 + (ray % 5) * 24);
+            return <line key={ray} x1={center.x * 10 + Math.cos(angle) * inner} y1={center.y * 10 + Math.sin(angle) * inner} x2={center.x * 10 + Math.cos(angle) * outer} y2={center.y * 10 + Math.sin(angle) * outer} stroke={burstIndex % 3 === 0 ? '#93c5fd' : burstIndex % 3 === 1 ? '#fff7ae' : '#f9a8d4'} strokeWidth={6 - ray % 3} strokeLinecap="round" />;
+          })}
+          <circle cx={center.x * 10} cy={center.y * 10} r={12 + local * 22} fill="white" />
+        </g>;
+      })}
+    </svg>{lightParticleBurst(11, 96, 50, 14, 1.38)}</AbsoluteFill>;
+  }
+
+  if (visual === 'cornerFountains') {
+    const active = pulse(p, .48, .5);
+    return <AbsoluteFill>{image('fountain-image')}<AbsoluteFill style={{mixBlendMode: 'screen', overflow: 'hidden'}}>
+      {[-1, 1].flatMap((side, sideIndex) => range(58).map((index) => {
+        const travel = clamp((p * 1.45 - index * .018) / .82);
+        const spread = 12 + seeded(index, sideIndex + 2) * 48;
+        const left = side < 0 ? 4 + travel * spread : 96 - travel * spread;
+        const top = 103 - travel * (58 + seeded(index, 7) * 64) + travel * travel * 26;
+        const size = 4 + seeded(index, 5) * 13;
+        return <div key={`${side}-${index}`} style={{position: 'absolute', left: `${left}%`, top: `${top}%`, width: size, height: size, borderRadius: '50%', opacity: active * (1 - travel * .58), background: index % 4 === 0 ? '#fff' : index % 2 ? '#fbbf24' : '#fde68a', boxShadow: '0 0 18px 6px currentColor', transform: 'translate(-50%,-50%)'}} />;
+      }))}
+    </AbsoluteFill></AbsoluteFill>;
+  }
+
+  if (visual === 'glitterRain') {
+    return <AbsoluteFill>{image('glitter-image')}<AbsoluteFill style={{mixBlendMode: 'screen', overflow: 'hidden'}}>{range(112).map((index) => {
+      const travel = (p * (1.15 + seeded(index, 4) * .45) + seeded(index, 8)) % 1.25;
+      const size = 6 + seeded(index, 5) * 18;
+      const opacity = pulse(travel, .55, .68) * (1 - p * .18);
+      return <div key={index} style={{position: 'absolute', left: `${seeded(index, 2) * 100}%`, top: `${travel * 112 - 10}%`, width: size, height: size, opacity, transform: `rotate(${index * 29 + p * 160}deg)`, background: index % 3 === 0 ? '#f9a8d4' : index % 3 === 1 ? '#fef08a' : '#bae6fd', clipPath: index % 2 ? 'polygon(50% 0,62% 38%,100% 50%,62% 62%,50% 100%,38% 62%,0 50%,38% 38%)' : 'circle(50%)', boxShadow: '0 0 9px currentColor'}} />;
+    })}</AbsoluteFill></AbsoluteFill>;
+  }
+
+  if (visual === 'starGlints') {
+    return <AbsoluteFill>{image('glints-image')}<AbsoluteFill style={{mixBlendMode: 'screen'}}>{range(46).map((index) => {
+      const local = pulse(p, .08 + seeded(index, 8) * .78, .14);
+      return <div key={index} style={{position: 'absolute', left: `${4 + seeded(index, 2) * 92}%`, top: `${4 + seeded(index, 6) * 92}%`, width: 24 + local * 104, height: 24 + local * 104, opacity: local, transform: `translate(-50%,-50%) rotate(${p * 120 + index * 19}deg)`, background: index % 2 ? '#fef9c3' : '#dbeafe', clipPath: 'polygon(50% 0,57% 42%,100% 50%,57% 58%,50% 100%,43% 58%,0 50%,43% 42%)', filter: 'blur(.3px)', boxShadow: '0 0 34px 12px currentColor'}} />;
+    })}</AbsoluteFill></AbsoluteFill>;
+  }
+
+  if (visual === 'haloShockwave') {
+    return <AbsoluteFill>{image('halo-image')}<AbsoluteFill style={{mixBlendMode: 'screen'}}>
+      {range(7).map((index) => {
+        const local = clamp((p - index * .065) / .62);
+        const size = 4 + local * 178;
+        return <div key={index} style={{position: 'absolute', left: '50%', top: '50%', width: `${size}%`, aspectRatio: '1', borderRadius: '50%', border: `${Math.max(2, 10 - local * 6)}px solid ${index % 2 ? '#fef3c7' : '#bfdbfe'}`, opacity: (1 - local) * .92, transform: 'translate(-50%,-50%)', boxShadow: '0 0 28px currentColor, inset 0 0 28px currentColor'}} />;
+      })}
+      {lightParticleBurst(31, 116, 50, 50, 1.34)}
+      <AbsoluteFill style={{opacity: pulse(p, .2, .2) * .65, background: 'radial-gradient(circle, white 0 8%, rgba(147,197,253,.65) 20%, transparent 58%)'}} />
+    </AbsoluteFill></AbsoluteFill>;
+  }
+
+  if (visual === 'luminousRibbon') {
+    const offset = -115 + p * 230;
+    return <AbsoluteFill>{image('ribbon-image')}<svg viewBox="0 0 1000 1000" preserveAspectRatio="none" style={{position: 'absolute', inset: 0, width: '100%', height: '100%', transform: `translateX(${offset}%)`, mixBlendMode: 'screen', filter: 'blur(.6px) drop-shadow(0 0 32px #93c5fd)'}}>
+      <path d="M-180 790 C100 50 410 950 1180 180" fill="none" stroke="rgba(255,255,255,.95)" strokeWidth="30" strokeLinecap="round" />
+      <path d="M-160 860 C210 180 570 820 1160 110" fill="none" stroke="rgba(125,211,252,.86)" strokeWidth="72" strokeLinecap="round" />
+      <path d="M-150 710 C250 20 720 920 1150 260" fill="none" stroke="rgba(253,230,138,.76)" strokeWidth="112" strokeLinecap="round" />
+      <path d="M-210 570 C180 930 590 30 1210 650" fill="none" stroke="rgba(249,168,212,.84)" strokeWidth="54" strokeLinecap="round" />
+      <path d="M-190 420 C260 850 720 80 1190 520" fill="none" stroke="rgba(255,255,255,.9)" strokeWidth="22" strokeLinecap="round" />
+      {range(34).map((index) => <circle key={index} cx={seeded(index, 7) * 1100 - 50} cy={seeded(index, 12) * 900 + 50} r={5 + seeded(index, 2) * 14} fill={index % 2 ? '#fff' : '#bae6fd'} opacity={pulse(p, seeded(index, 5), .28)} />)}
+    </svg></AbsoluteFill>;
+  }
+
+  if (visual === 'flashCluster') {
+    const flashes = [{x: 10, y: 18, t: .08}, {x: 38, y: 12, t: .16}, {x: 72, y: 18, t: .27}, {x: 91, y: 38, t: .36}, {x: 46, y: 58, t: .45}, {x: 76, y: 72, t: .57}, {x: 25, y: 80, t: .68}, {x: 54, y: 88, t: .78}, {x: 90, y: 86, t: .87}];
+    return <AbsoluteFill>{image('flash-image')}<AbsoluteFill style={{mixBlendMode: 'screen'}}>{flashes.map((flash, index) => {
+      const local = pulse(p, flash.t, .11);
+      const size = 16 + local * (38 + index * 3);
+      return <div key={index} style={{position: 'absolute', left: `${flash.x}%`, top: `${flash.y}%`, width: `${size}%`, aspectRatio: '1', borderRadius: '50%', opacity: local * .9, transform: 'translate(-50%,-50%)', background: 'radial-gradient(circle, white 0 5%, rgba(254,249,195,.9) 10%, rgba(147,197,253,.45) 32%, transparent 70%)', filter: `blur(${(1 - local) * 5}px)`}} />;
+    })}<AbsoluteFill style={{background: 'white', opacity: Math.max(...flashes.map((flash) => pulse(p, flash.t, .075))) * .36}} /></AbsoluteFill></AbsoluteFill>;
+  }
+
+  if (visual === 'goldenDust') {
+    return <AbsoluteFill>{image('dust-image')}<AbsoluteFill style={{mixBlendMode: 'screen', overflow: 'hidden'}}>{range(126).map((index) => {
+      const travel = clamp((p - seeded(index, 3) * .24) / .76);
+      const sway = Math.sin(index * 1.7 + p * 5) * (4 + seeded(index, 9) * 6);
+      const size = 3 + seeded(index, 2) * 13;
+      return <div key={index} style={{position: 'absolute', left: `${seeded(index, 6) * 100 + sway}%`, top: `${104 - travel * (48 + seeded(index, 5) * 64)}%`, width: size, height: size, borderRadius: '50%', opacity: pulse(travel, .52, .58) * .95, background: index % 5 === 0 ? '#fff' : '#fbbf24', boxShadow: '0 0 14px 4px rgba(251,191,36,.85)'}} />;
+    })}</AbsoluteFill></AbsoluteFill>;
+  }
+
+  if (visual === 'celebrationPyro') {
+    const bursts = [{x: 8, y: 28, t: .07, color: '#f9a8d4'}, {x: 28, y: 16, t: .17, color: '#fde68a'}, {x: 50, y: 22, t: .29, color: '#bfdbfe'}, {x: 78, y: 14, t: .39, color: '#c4b5fd'}, {x: 92, y: 34, t: .48, color: '#fef08a'}, {x: 72, y: 70, t: .59, color: '#f9a8d4'}, {x: 42, y: 78, t: .7, color: '#fde68a'}, {x: 16, y: 70, t: .81, color: '#bfdbfe'}];
+    return <AbsoluteFill>{image('pyro-image')}<svg viewBox="0 0 1000 1000" preserveAspectRatio="none" style={{position: 'absolute', inset: 0, width: '100%', height: '100%', mixBlendMode: 'screen'}}>{bursts.map((burst, burstIndex) => {
+      const local = pulse(p, burst.t, .18);
+      const radius = 32 + local * 164;
+      return <g key={burstIndex} style={{opacity: local, filter: `drop-shadow(0 0 22px ${burst.color})`}}>{range(24).map((ray) => {
+        const angle = ray / 24 * Math.PI * 2 + burstIndex * .35;
+        const inner = radius * .42;
+        const length = radius * (.78 + seeded(ray, burstIndex) * .42);
+        return <line key={ray} x1={burst.x * 10 + Math.cos(angle) * inner} y1={burst.y * 10 + Math.sin(angle) * inner} x2={burst.x * 10 + Math.cos(angle) * length} y2={burst.y * 10 + Math.sin(angle) * length} stroke={burst.color} strokeWidth={5 + ray % 4} strokeLinecap="round" />;
+      })}<circle cx={burst.x * 10} cy={burst.y * 10} r={8 + local * 10} fill="white" /></g>;
+    })}</svg></AbsoluteFill>;
+  }
+
+  if (visual === 'prismaticFireworks') {
+    const colorPulse = Math.max(pulse(p, .12, .12), pulse(p, .46, .12), pulse(p, .8, .12));
+    const bursts = [
+      {x: 9, y: 18, t: .08, color: '#f9a8d4'}, {x: 34, y: 10, t: .25, color: '#fef08a'},
+      {x: 66, y: 13, t: .48, color: '#93c5fd'}, {x: 91, y: 21, t: .7, color: '#c4b5fd'},
+    ];
+    return <AbsoluteFill>
+      {image('prismatic-fireworks-image', {filter: `${imageStyle.filter ?? ''} saturate(${1 + colorPulse * .42}) hue-rotate(${Math.sin(p * Math.PI * 6) * 22}deg) brightness(${1 + colorPulse * .16})`})}
+      <AbsoluteFill style={{opacity: .18 + colorPulse * .34, mixBlendMode: 'screen', background: `linear-gradient(${110 + p * 80}deg, rgba(34,211,238,.72), transparent 34%, rgba(244,114,182,.68) 62%, rgba(253,224,71,.58))`}} />
+      <svg viewBox="0 0 1000 1000" preserveAspectRatio="none" style={{position: 'absolute', inset: 0, width: '100%', height: '100%', mixBlendMode: 'screen'}}>
+        {bursts.map((burst, burstIndex) => {
+          const local = pulse(p, burst.t, .19);
+          return <g key={burstIndex} opacity={local} style={{filter: `drop-shadow(0 0 ${12 + local * 18}px ${burst.color})`}}>
+            {range(32).map((ray) => {
+              const angle = ray / 32 * Math.PI * 2 + burstIndex * .21;
+              const inner = 12 + local * 20;
+              const outer = inner + local * (100 + ray % 6 * 15);
+              return <line key={ray} x1={burst.x * 10 + Math.cos(angle) * inner} y1={burst.y * 10 + Math.sin(angle) * inner} x2={burst.x * 10 + Math.cos(angle) * outer} y2={burst.y * 10 + Math.sin(angle) * outer} stroke={burst.color} strokeWidth={3 + ray % 4} strokeLinecap="round" />;
+            })}
+          </g>;
+        })}
+      </svg>
+      {range(54).map((index) => {
+        const local = pulse(p, .08 + lightSeed(index, 44) * .84, .1);
+        return <div key={index} style={{position: 'absolute', left: `${lightSeed(index, 45) * 100}%`, top: `${lightSeed(index, 46) * 100}%`, width: 8 + local * 30, height: 8 + local * 30, opacity: local, transform: `translate(-50%,-50%) rotate(${45 + index * 17}deg)`, background: index % 3 ? '#fff' : '#fef08a', clipPath: 'polygon(50% 0,58% 42%,100% 50%,58% 58%,50% 100%,42% 58%,0 50%,42% 42%)', boxShadow: '0 0 18px 5px currentColor'}} />;
+      })}
+    </AbsoluteFill>;
+  }
+
+  if (visual === 'polaroidSparkPop') {
+    const settle = clamp(p / .42);
+    const shine = pulse(p, .32, .2);
+    return <AbsoluteFill style={{background: 'radial-gradient(circle at 50% 48%, rgba(191,219,254,.32), transparent 68%)'}}>
+      {image('polaroid-shadow', {transform: `translateY(${(1 - settle) * 6}%) rotate(${(1 - settle) * 2.8}deg) scale(${.91 + settle * .09})`, filter: `${imageStyle.filter ?? ''} brightness(${.9 + settle * .1})`, boxShadow: '0 24px 70px rgba(15,23,42,.45)'})}
+      <AbsoluteFill style={{inset: '3.5%', border: `${6 + shine * 8}px solid rgba(255,255,255,${.72 + shine * .24})`, boxShadow: `0 0 ${24 + shine * 50}px rgba(147,197,253,.9), inset 0 0 ${18 + shine * 30}px rgba(255,255,255,.7)`, transform: `rotate(${(1 - settle) * 2.8}deg)`, opacity: .65 + settle * .35}} />
+      {range(38).map((index) => {
+        const edge = index % 4;
+        const local = pulse(p, .1 + lightSeed(index, 51) * .75, .13);
+        const horizontal = edge < 2;
+        const left = horizontal ? 4 + lightSeed(index, 52) * 92 : edge === 2 ? 4 : 96;
+        const top = horizontal ? edge === 0 ? 4 : 96 : 4 + lightSeed(index, 53) * 92;
+        return <div key={index} style={{position: 'absolute', left: `${left}%`, top: `${top}%`, width: 5 + local * 24, height: 5 + local * 24, borderRadius: '50%', opacity: local, transform: 'translate(-50%,-50%)', background: index % 2 ? '#fff7ae' : '#dbeafe', boxShadow: '0 0 17px 7px currentColor'}} />;
+      })}
+      <AbsoluteFill style={{opacity: shine * .56, mixBlendMode: 'screen', background: 'linear-gradient(112deg, transparent 30%, white 49%, rgba(147,197,253,.62) 53%, transparent 68%)', transform: `translateX(${p * 180 - 90}%)`}} />
+    </AbsoluteFill>;
+  }
+
+  if (visual === 'chromaticStarWash') {
+    const sweepX = -65 + p * 230;
+    return <AbsoluteFill>
+      {image('chromatic-star-image', {filter: `${imageStyle.filter ?? ''} saturate(${1.08 + pulse(p, .52, .46) * .34}) contrast(${1.02 + pulse(p, .52, .35) * .12})`})}
+      <AbsoluteFill style={{opacity: .62, mixBlendMode: 'screen', filter: 'blur(16px)', transform: `translateX(${sweepX}%) skewX(-18deg) scaleX(.48)`, background: 'linear-gradient(90deg, transparent, #22d3ee 18%, #ffffff 43%, #f472b6 66%, #fde68a 82%, transparent)'}} />
+      {range(72).map((index) => {
+        const start = lightSeed(index, 61) * .78;
+        const local = pulse(p, start + .09, .11);
+        const x = lightSeed(index, 62) * 112 - 6;
+        const y = lightSeed(index, 63) * 112 - 6;
+        const size = 9 + lightSeed(index, 64) * 20 + local * 38;
+        return <div key={index} style={{position: 'absolute', left: `${x}%`, top: `${y}%`, width: size, height: size, opacity: local * .95, transform: `translate(-50%,-50%) rotate(${p * 150 + index * 23}deg)`, background: index % 3 === 0 ? '#fef08a' : index % 3 === 1 ? '#bae6fd' : '#fbcfe8', clipPath: 'polygon(50% 0,56% 43%,100% 50%,56% 57%,50% 100%,44% 57%,0 50%,44% 43%)', boxShadow: '0 0 24px 7px currentColor'}} />;
+      })}
+    </AbsoluteFill>;
+  }
+
+  if (visual === 'radialRushFocus') {
+    const rush = Math.max(pulse(p, .2, .2), pulse(p, .68, .19));
+    return <AbsoluteFill>
+      {image('radial-rush-base', {transform: `scale(${1 + rush * .045})`, filter: `${imageStyle.filter ?? ''} blur(${rush * 1.8}px) brightness(${1 + rush * .18})`})}
+      {range(7).map((index) => image(`radial-rush-echo-${index}`, {transform: `scale(${1 + rush * (.07 + index * .055)})`, opacity: rush * (.22 - index * .022), filter: `blur(${3 + index * 2}px) brightness(1.28)`, mixBlendMode: 'screen'}))}
+      <AbsoluteFill style={{opacity: rush * .72, mixBlendMode: 'screen', transform: `scale(${.45 + rush * .9})`, background: 'repeating-conic-gradient(from 0deg at 50% 50%, rgba(255,255,255,.9) 0 1deg, transparent 1deg 4.5deg)', filter: `blur(${2 + rush * 5}px)`, maskImage: 'radial-gradient(circle, transparent 0 13%, #000 37%, transparent 86%)', WebkitMaskImage: 'radial-gradient(circle, transparent 0 13%, #000 37%, transparent 86%)'}} />
+      <AbsoluteFill style={{opacity: rush * .52, background: 'radial-gradient(circle, white 0 4%, rgba(191,219,254,.74) 10%, transparent 44%)', mixBlendMode: 'screen'}} />
+    </AbsoluteFill>;
+  }
+
+  if (visual === 'splitFocusRush') {
+    const rush = Math.max(pulse(p, .24, .23), pulse(p, .73, .17));
+    return <AbsoluteFill>
+      {image('split-focus-base')}
+      {piece('split-focus-left', 'inset(0 50% 0 0)', {transform: `translateX(${-rush * 7}%) scale(${1 + rush * .08})`, opacity: rush * .58, filter: `blur(${2 + rush * 8}px) brightness(1.3)`, mixBlendMode: 'screen'})}
+      {piece('split-focus-right', 'inset(0 0 0 50%)', {transform: `translateX(${rush * 7}%) scale(${1 + rush * .13})`, opacity: rush * .52, filter: `blur(${3 + rush * 10}px) brightness(1.22)`, mixBlendMode: 'screen'})}
+      <AbsoluteFill style={{opacity: rush * .66, mixBlendMode: 'screen', background: 'repeating-linear-gradient(0deg, transparent 0 19px, rgba(255,255,255,.72) 20px 23px, transparent 24px 42px)', transform: `scaleX(${1 + rush * .35})`, filter: 'blur(2px)', maskImage: 'linear-gradient(90deg, transparent, #000 18% 82%, transparent)', WebkitMaskImage: 'linear-gradient(90deg, transparent, #000 18% 82%, transparent)'}} />
+      <div style={{position: 'absolute', left: '50%', top: 0, width: 8 + rush * 20, height: '100%', opacity: rush * .75, transform: 'translateX(-50%)', background: 'linear-gradient(180deg, transparent, white 18% 82%, transparent)', filter: 'blur(7px)', mixBlendMode: 'screen'}} />
+    </AbsoluteFill>;
+  }
+
+  if (visual === 'tunnelSnapClarity') {
+    const snap = Math.max(pulse(p, .26, .25), pulse(p, .78, .17));
+    return <AbsoluteFill>
+      {image('tunnel-snap-base', {filter: `${imageStyle.filter ?? ''} brightness(${1 + snap * .12})`})}
+      {range(6).map((index) => {
+        const depth = (index + 1) / 6;
+        return image(`tunnel-snap-${index}`, {inset: `${depth * 4}%`, transform: `scale(${1 - depth * .18 + snap * depth * .42})`, opacity: snap * (.3 - index * .032), border: `${2 + index}px solid rgba(219,234,254,${.72 - index * .07})`, boxShadow: '0 0 24px rgba(147,197,253,.82)', filter: `blur(${index * 1.3}px)`, mixBlendMode: 'screen'});
+      })}
+      <AbsoluteFill style={{opacity: snap * .72, transform: `scale(${.28 + snap * 1.05})`, background: 'radial-gradient(circle, white 0 3%, rgba(125,211,252,.8) 8%, rgba(196,181,253,.48) 19%, transparent 52%)', mixBlendMode: 'screen'}} />
+      {range(28).map((index) => {
+        const angle = index / 28 * Math.PI * 2;
+        const length = 10 + snap * (24 + index % 5 * 8);
+        const distance = 8 + snap * 44;
+        return <div key={index} style={{position: 'absolute', left: `${50 + Math.cos(angle) * distance}%`, top: `${50 + Math.sin(angle) * distance}%`, width: length, height: 3 + index % 3, opacity: snap * .82, transform: `translate(-50%,-50%) rotate(${angle}rad)`, transformOrigin: '0 50%', borderRadius: 999, background: index % 2 ? '#fff' : '#bae6fd', boxShadow: '0 0 10px currentColor'}} />;
+      })}
+    </AbsoluteFill>;
   }
 
   if (visual === 'matrixRain') {

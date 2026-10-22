@@ -5,11 +5,15 @@ const transientPatterns = [
   'target closed',
   'page crashed',
   'browser closed',
+  'browser process',
+  'failed to launch',
+  'protocol error',
   'socket hang up',
   'econnreset',
   'econnrefused',
   'timed out',
   'timeout',
+  '总耗时超过',
 ];
 
 export function getRenderErrorMessage(error: unknown) {

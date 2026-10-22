@@ -1,11 +1,12 @@
 import type {Metadata} from 'next';
 import Link from 'next/link';
 import {History, Sparkles} from 'lucide-react';
+import {ToolSwitcher} from '@/components/ToolSwitcher';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'MotionFlow · 图片入场动效工坊',
-  description: '批量把图片生成 5 秒入场特效视频',
+  title: 'MotionFlow · 图片动态视频工坊',
+  description: '批量生成单图 5 秒特效视频和三图 15 秒微动视频',
 };
 
 export default function RootLayout({children}: Readonly<{children: React.ReactNode}>) {
@@ -19,7 +20,7 @@ export default function RootLayout({children}: Readonly<{children: React.ReactNo
             <span className="brand-badge">本地版</span>
           </Link>
           <nav className="topnav">
-            <Link href="/" className="nav-link">动效工坊</Link>
+            <ToolSwitcher />
             <Link href="/history" className="nav-link"><History size={16} />历史任务</Link>
           </nav>
         </header>
@@ -28,4 +29,3 @@ export default function RootLayout({children}: Readonly<{children: React.ReactNo
     </html>
   );
 }
-

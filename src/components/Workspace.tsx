@@ -6,12 +6,15 @@ import {
   AlertCircle, Check, CheckCircle2, ChevronDown, CircleDashed, Download, Film,
   ImagePlus, LoaderCircle, Play, RotateCcw, Sparkles, Trash2, UploadCloud, WandSparkles, X,
 } from 'lucide-react';
-import type {CreateJobInput, EffectPreset, ImageRecord, Intensity, Resolution} from '@/lib/schema';
+import type {EffectPreset, ImageRecord, Intensity, Resolution, SingleIntroJobInput} from '@/lib/schema';
 import {MAX_WORKSPACE_IMAGES, VISIBLE_IMAGE_THUMBNAILS} from '@/lib/limits';
 import {EffectPreview} from './EffectPreview';
+import {BulkDownloadButton} from './BulkDownloadButton';
 
 type JobItem = {id: string; effectId: string; effectName: string; status: string; progress: number; previewUrl: string | null; downloadUrl: string | null; errorMessage: string | null};
-type Job = {id: string; status: string; totalCount: number; completedCount: number; failedCount: number; items: JobItem[]; createdAt: string};
+type Job = {id: string; toolType: 'single_intro' | 'three_image_motion'; status: string; totalCount: number; completedCount: number; failedCount: number; items: JobItem[]; createdAt: string};
+
+const SETTINGS_KEY = 'motionflow:single-intro-settings';
 
 const modeOptions = [
   {value: 'all_random', label: '全随机', note: '全部特效'},
@@ -21,7 +24,7 @@ const modeOptions = [
   {value: 'specific', label: '指定特效', note: '从已选中抽取'},
 ] as const;
 
-const categoryNames: Record<string, string> = {basic: '基础', combo: '组合', dynamic: '动感', glitch: '故障', camera: '镜头', '3d': '3D', light: '光效'};
+const categoryNames: Record<string, string> = {basic: '基础', combo: '组合', dynamic: '动感', glitch: '故障', camera: '镜头', '3d': '3D', light: '光效', reference_light: '参考光效'};
 const statusNames: Record<string, string> = {pending: '等待中', running: '生成中', completed: '已完成', partial_failed: '部分失败', failed: '失败', waiting: '排队中', rendering: '渲染中'};
 
 async function jsonRequest<T>(url: string, init?: RequestInit): Promise<T> {
@@ -39,29 +42,66 @@ export function Workspace() {
   const [activeCategory, setActiveCategory] = useState('all');
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedEffectIds, setSelectedEffectIds] = useState<string[]>([]);
-  const [resolution, setResolution] = useState<Resolution>('1080p');
-  const [effectMode, setEffectMode] = useState<CreateJobInput['effectMode']>('all_random');
+  const resolution: Resolution = '720p';
+  const [effectMode, setEffectMode] = useState<SingleIntroJobInput['effectMode']>('all_random');
   const [introDuration, setIntroDuration] = useState<0.5 | 0.8 | 1 | 1.2>(1.2);
   const [intensity, setIntensity] = useState<Intensity>('medium');
   const [breathing, setBreathing] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [clearingImages, setClearingImages] = useState(false);
   const [retryingAll, setRetryingAll] = useState(false);
   const [retryingItemId, setRetryingItemId] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [job, setJob] = useState<Job | null>(null);
   const [message, setMessage] = useState<{kind: 'error' | 'info'; text: string} | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(true);
+  const [settingsReady, setSettingsReady] = useState(false);
   const activeJobId = job?.id;
   const activeJobStatus = job?.status;
 
   useEffect(() => {
+    const settingsTimer = window.setTimeout(() => {
+      try {
+        const saved = JSON.parse(window.localStorage.getItem(SETTINGS_KEY) ?? '{}') as Partial<{
+          effectMode: SingleIntroJobInput['effectMode']; selectedCategories: string[];
+          selectedEffectIds: string[]; introDuration: 0.5 | 0.8 | 1 | 1.2; intensity: Intensity; breathing: boolean;
+        }>;
+        if (saved.effectMode) setEffectMode(saved.effectMode);
+        if (saved.selectedCategories) setSelectedCategories(saved.selectedCategories);
+        if (saved.selectedEffectIds) setSelectedEffectIds(saved.selectedEffectIds);
+        if (saved.introDuration) setIntroDuration(saved.introDuration);
+        if (saved.intensity) setIntensity(saved.intensity);
+        if (typeof saved.breathing === 'boolean') setBreathing(saved.breathing);
+      } catch { /* 使用默认设置 */ }
+      setSettingsReady(true);
+    }, 0);
     jsonRequest<{effects: EffectPreset[]}>('/api/effects').then((data) => setEffects(data.effects)).catch((error) => setMessage({kind: 'error', text: error.message}));
-    jsonRequest<{images: ImageRecord[]}>('/api/images').then((data) => setImages(data.images)).catch((error) => setMessage({kind: 'error', text: error.message}));
-    const jobId = new URLSearchParams(window.location.search).get('job');
-    if (jobId) jsonRequest<{job: Job}>(`/api/video-jobs/${jobId}`).then((data) => setJob(data.job)).catch((error) => setMessage({kind: 'error', text: error.message}));
+    const searchParams = new URLSearchParams(window.location.search);
+    if (searchParams.get('new') === '1') {
+      jsonRequest('/api/images', {method: 'DELETE'})
+        .then(() => {
+          setImages([]);
+          if (fileRef.current) fileRef.current.value = '';
+          window.history.replaceState({}, '', window.location.pathname);
+        })
+        .catch((error) => setMessage({kind: 'error', text: error.message}));
+    } else {
+      jsonRequest<{images: ImageRecord[]}>('/api/images').then((data) => setImages(data.images)).catch((error) => setMessage({kind: 'error', text: error.message}));
+    }
+    const jobId = searchParams.get('job');
+    if (jobId) jsonRequest<{job: Job}>(`/api/video-jobs/${jobId}`).then((data) => {
+      if (data.job.toolType !== 'single_intro') throw new Error('该任务属于“三图 15 秒微动”，请从历史记录进入对应工具');
+      setJob(data.job);
+    }).catch((error) => setMessage({kind: 'error', text: error.message}));
+    return () => window.clearTimeout(settingsTimer);
   }, []);
+
+  useEffect(() => {
+    if (!settingsReady) return;
+    window.localStorage.setItem(SETTINGS_KEY, JSON.stringify({effectMode, selectedCategories, selectedEffectIds, introDuration, intensity, breathing}));
+  }, [settingsReady, effectMode, selectedCategories, selectedEffectIds, introDuration, intensity, breathing]);
 
   useEffect(() => {
     if (!activeJobId || !activeJobStatus || ['completed', 'partial_failed', 'failed'].includes(activeJobStatus)) return;
@@ -103,12 +143,28 @@ export function Workspace() {
     } catch (error) { setMessage({kind: 'error', text: error instanceof Error ? error.message : '删除失败'}); }
   }
 
+  async function clearImages() {
+    if (images.length === 0) return;
+    setClearingImages(true);
+    setMessage(null);
+    try {
+      await jsonRequest('/api/images', {method: 'DELETE'});
+      setImages([]);
+      if (fileRef.current) fileRef.current.value = '';
+    } catch (error) {
+      setMessage({kind: 'error', text: error instanceof Error ? error.message : '清空素材失败'});
+    } finally {
+      setClearingImages(false);
+    }
+  }
+
   async function startNewTask() {
     setResetting(true);
     setMessage(null);
     try {
       await jsonRequest('/api/images', {method: 'DELETE'});
       setImages([]);
+      if (fileRef.current) fileRef.current.value = '';
       setJob(null);
       window.history.replaceState({}, '', window.location.pathname);
     } catch (error) {
@@ -132,7 +188,7 @@ export function Workspace() {
     if (selectedPoolSize === 0) return setMessage({kind: 'error', text: effectMode === 'specific' ? '请先选择具体特效' : '请选择至少一个有效分类'});
     setCreating(true);
     try {
-      const payload: CreateJobInput = {imageIds: images.map((image) => image.id), ratio: 'source', durationSec: 5, countPerImage: 1, effectMode, selectedCategories, selectedEffectIds, allowDuplicate: false, introDurationSec: introDuration, intensity, enableBreathing: breathing, resolution};
+      const payload: SingleIntroJobInput = {toolType: 'single_intro', imageIds: images.map((image) => image.id), ratio: 'source', durationSec: 5, countPerImage: 1, effectMode, selectedCategories, selectedEffectIds, allowDuplicate: false, introDurationSec: introDuration, intensity, enableBreathing: breathing, resolution};
       const data = await jsonRequest<{jobId: string}>('/api/video-jobs', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
       const detail = await jsonRequest<{job: Job}>(`/api/video-jobs/${data.jobId}`);
       setJob(detail.job);
@@ -164,9 +220,6 @@ export function Workspace() {
 
   const completedPercent = job ? Math.round(((job.completedCount + job.failedCount) / Math.max(1, job.totalCount)) * 100) : 0;
   const completedItems = job?.items.filter((item) => item.downloadUrl) ?? [];
-  const oneClickDownloadUrl = job && completedItems.length > 0
-    ? completedItems.length === 1 ? completedItems[0].downloadUrl : `/api/video-jobs/${job.id}/download-zip`
-    : null;
 
   return (
     <main className="workspace-page">
@@ -178,7 +231,7 @@ export function Workspace() {
 
       <div className="workspace-grid">
         <aside className="panel settings-panel">
-          <SectionHeader number="01" title="添加图片" subtitle={`${images.length}/${MAX_WORKSPACE_IMAGES} 张`} />
+          <div className="section-header"><span>01</span><h3>添加图片</h3><small>{images.length}/{MAX_WORKSPACE_IMAGES} 张</small>{images.length > 0 && <button className="clear-materials-action" disabled={clearingImages || uploading} onClick={() => void clearImages()}>{clearingImages ? <LoaderCircle className="spin" size={13} /> : <Trash2 size={13} />}一键清除</button>}</div>
           <div className={`dropzone ${dragging ? 'dragging' : ''}`} onDragOver={(event) => {event.preventDefault(); setDragging(true);}} onDragLeave={() => setDragging(false)} onDrop={(event) => {event.preventDefault(); setDragging(false); void uploadFiles(Array.from(event.dataTransfer.files));}} onClick={() => fileRef.current?.click()}>
             {uploading ? <LoaderCircle className="spin" size={28} /> : <UploadCloud size={28} />}
             <strong>{uploading ? '正在读取图片…' : '拖入图片或点击上传'}</strong><span>JPG / PNG / WebP，单张不超过 20MB</span>
@@ -192,7 +245,7 @@ export function Workspace() {
           <SectionHeader number="02" title="基础参数" />
           <div className="two-fields">
             <Field label="输出比例"><div className="fixed-value">跟随每张原图</div></Field>
-            <Field label="清晰度"><select value={resolution} onChange={(event) => setResolution(event.target.value as Resolution)}><option value="1080p">1080p 高清</option><option value="720p">720p 快速</option></select></Field>
+            <Field label="清晰度"><div className="fixed-value">720p 标准</div></Field>
           </div>
 
           <div className="section-divider" />
@@ -216,7 +269,10 @@ export function Workspace() {
           <div className="effect-cards">{visibleEffects.map((effect) => {
             const selected = selectedEffectIds.includes(effect.id);
             const previewing = effect.id === previewEffectId;
-            return <button key={effect.id} className={`effect-card ${selected ? 'selected' : ''} ${previewing ? 'previewing' : ''}`} onClick={() => toggleEffect(effect.id)}><span className={`effect-icon category-${effect.category}`}><Play size={15} fill="currentColor" /></span><span className="effect-copy"><strong>{effect.name}</strong><small>{categoryNames[effect.category]} · {effect.type === 'combo' ? '入场＋出场' : `${effect.durationFrames} 帧`}</small></span>{effectMode === 'specific' && <span className="check-dot">{selected && <Check size={12} />}</span>}</button>;
+            const effectTiming = effect.category === 'reference_light'
+              ? '循环入场光效'
+              : effect.type === 'combo' ? '入场＋出场' : `${effect.durationFrames} 帧`;
+            return <button key={effect.id} className={`effect-card ${selected ? 'selected' : ''} ${previewing ? 'previewing' : ''}`} onClick={() => toggleEffect(effect.id)}><span className={`effect-icon category-${effect.category}`}><Play size={15} fill="currentColor" /></span><span className="effect-copy"><strong>{effect.name}</strong><small>{categoryNames[effect.category]} · {effectTiming}</small></span>{effectMode === 'specific' && <span className="check-dot">{selected && <Check size={12} />}</span>}</button>;
           })}</div>
         </section>
 
@@ -229,7 +285,7 @@ export function Workspace() {
             <p className="action-note">本地顺序渲染，可离开当前页面后从历史任务继续查看。</p>
           </> : <>
             <div className="progress-card"><div className="progress-top"><span>整体进度</span><strong>{completedPercent}%</strong></div><div className="progress-track"><i style={{width: `${completedPercent}%`}} /></div><div className="progress-counts"><span><CheckCircle2 size={14} />完成 {job.completedCount}</span><span><CircleDashed size={14} />剩余 {job.totalCount - job.completedCount - job.failedCount}</span>{job.failedCount > 0 && <span className="failed">失败 {job.failedCount}</span>}</div></div>
-            {oneClickDownloadUrl && <a className="primary-action one-click-download" href={oneClickDownloadUrl}><Download size={17} />{completedItems.length === 1 ? '一键下载 MP4' : `一键下载全部 ${completedItems.length} 条`}</a>}
+            {completedItems.length > 0 && <BulkDownloadButton jobId={job.id} count={completedItems.length} />}
             {job.failedCount > 0 && <div className="job-actions"><button className="secondary-action" disabled={retryingAll} onClick={() => void retryFailed()}>{retryingAll ? <LoaderCircle className="spin" size={16} /> : <RotateCcw size={16} />}重试全部失败项</button></div>}
             {job.status === 'running' && <p className="retry-note">临时渲染异常会自动重试 2 次，无需手动操作。</p>}
             <div className="result-list">{job.items.map((item, index) => <article className="result-item" key={item.id}>

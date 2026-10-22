@@ -1,2 +1,3 @@
 export const MAX_WORKSPACE_IMAGES = 100;
+export const MAX_SEQUENCE_IMAGES = 99;
 export const VISIBLE_IMAGE_THUMBNAILS = 10;

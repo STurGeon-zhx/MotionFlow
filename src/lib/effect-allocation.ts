@@ -1,8 +1,8 @@
 import {effects} from './effects';
 import {createRandom, shuffle} from './random';
-import type {CreateJobInput, EffectPreset} from './schema';
+import type {EffectPreset, SingleIntroJobInput} from './schema';
 
-export function getEffectPool(input: CreateJobInput) {
+export function getEffectPool(input: SingleIntroJobInput) {
   const enabled = effects.filter((effect) => effect.enabled);
   switch (input.effectMode) {
     case 'basic_only': return enabled.filter((effect) => effect.type === 'basic');
