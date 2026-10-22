@@ -1,3 +1,4 @@
+import {entryStartFrames} from './entry-offsets';
 import {Easing, interpolate} from 'remotion';
 import type {Atom, Intensity} from '@/lib/schema';
 import type {RandomizedParams} from './types';
@@ -58,4 +59,9 @@ export function atomValue(
   if (type === 'rotate' || type === 'rotateX' || type === 'perspective' || type === 'skewX' || type === 'skewY') value *= intensityFactor * params.rotateMultiplier;
   if (type === 'blur') value *= intensityFactor * params.blurMultiplier;
   return value;
+}
+
+export function resolveVisibleEntryFrame(frame: number, introFrames: number, effectId: string, presetFrames: number) {
+  const lead = (entryStartFrames[effectId] ?? 0) * introFrames / Math.max(1, presetFrames);
+  return Math.min(introFrames, Math.max(0, frame) + lead);
 }

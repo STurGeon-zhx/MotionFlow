@@ -1,3 +1,4 @@
+import {referenceCreativeEffects} from './reference-creative-effects';
 import {effectPresetSchema, type Atom, type EffectPreset} from './schema';
 
 const atom = (
@@ -16,6 +17,7 @@ const referenceLightVisualAtoms = (): Atom[] => [
 ];
 
 const rawEffects: EffectPreset[] = [
+  ...referenceCreativeEffects,
   {id: 'basic_zoom_in', name: '中心放大进入', type: 'basic', category: 'basic', description: '从远处柔和放大并显现', durationFrames: 24, atoms: [atom('scale', .72, 1, 0, 24), atom('opacity', 0, 1, 0, 12, 'linear')], enabled: true},
   {id: 'basic_slide_left', name: '左滑入', type: 'basic', category: 'basic', description: '从左侧快速滑入', durationFrames: 24, atoms: [atom('translateX', -260, 0, 0, 24), atom('opacity', 0, 1, 0, 9, 'linear')], enabled: true},
   {id: 'basic_slide_up', name: '上滑入', type: 'basic', category: 'basic', description: '画面从下向上进入', durationFrames: 24, atoms: [atom('translateY', 240, 0, 0, 24), atom('opacity', 0, 1, 0, 10, 'linear')], enabled: true},

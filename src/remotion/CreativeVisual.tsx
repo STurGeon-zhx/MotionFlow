@@ -1,3 +1,4 @@
+import {isReferenceCreativeVisual, ReferenceCreativeVisual} from './ReferenceCreativeVisual';
 import React from 'react';
 import {AbsoluteFill, Img} from 'remotion';
 import type {CreativeVisual as CreativeVisualKind} from '@/lib/schema';
@@ -21,6 +22,10 @@ export const CreativeVisual: React.FC<Props> = ({visual, progress, imageSrc, ima
     <AbsoluteFill key={key} style={style}><Img src={imageSrc} style={imageStyle} /></AbsoluteFill>
   );
   const piece = (key: string, clipPath: string, style: React.CSSProperties = {}) => image(key, {clipPath, ...style});
+
+  if (isReferenceCreativeVisual(visual)) {
+    return <ReferenceCreativeVisual visual={visual} progress={p} imageSrc={imageSrc} imageStyle={imageStyle} />;
+  }
 
   if (advancedCreativeVisuals.has(visual)) {
     return <AdvancedCreativeVisual visual={visual} progress={p} imageSrc={imageSrc} imageStyle={imageStyle} isExiting={isExiting} />;

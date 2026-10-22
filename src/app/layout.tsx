@@ -1,3 +1,4 @@
+import {CheckUpdatesButton} from '@/components/CheckUpdatesButton';
 import type {Metadata} from 'next';
 import Link from 'next/link';
 import {History, Sparkles} from 'lucide-react';
@@ -21,6 +22,7 @@ export default function RootLayout({children}: Readonly<{children: React.ReactNo
           </Link>
           <nav className="topnav">
             <ToolSwitcher />
+            <CheckUpdatesButton />
             <Link href="/history" className="nav-link"><History size={16} />历史任务</Link>
           </nav>
         </header>

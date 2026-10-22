@@ -11,10 +11,10 @@ const baseInput = singleIntroJobSchema.parse({
 });
 
 describe('特效预设与分配', () => {
-  it('提供 7 个基础动画和 91 个组合动画', () => {
-    expect(effects).toHaveLength(98);
+  it('提供 7 个基础动画和 111 个组合动画', () => {
+    expect(effects).toHaveLength(118);
     expect(effects.filter((effect) => effect.type === 'basic')).toHaveLength(7);
-    expect(effects.filter((effect) => effect.type === 'combo')).toHaveLength(91);
+    expect(effects.filter((effect) => effect.type === 'combo')).toHaveLength(111);
     expect(new Set(effects.map((effect) => effect.id)).size).toBe(effects.length);
     effects.forEach((effect) => expect(effectPresetSchema.safeParse(effect).success).toBe(true));
   });
@@ -26,9 +26,9 @@ describe('特效预设与分配', () => {
     expect(new Set(signatures).size).toBe(threeDEffects.length);
   });
 
-  it('63 个创意转场使用互不重复的视觉机制', () => {
+  it('83 个创意转场使用互不重复的视觉机制', () => {
     const creativeEffects = effects.filter((effect) => effect.visual);
-    expect(creativeEffects).toHaveLength(63);
+    expect(creativeEffects).toHaveLength(83);
     expect(new Set(creativeEffects.map((effect) => effect.visual)).size).toBe(creativeEffects.length);
   });
 
@@ -65,6 +65,13 @@ describe('特效预设与分配', () => {
       cameraSignatures.push(cameraAtoms.map((entry) => `${entry.type}:${entry.from}:${entry.to}:${entry.startFrame}:${entry.endFrame}:${entry.easing}`).join('|'));
     }
     expect(new Set(cameraSignatures).size).toBe(referenceLights.length);
+  });
+
+  it('新增20个参考创意均有独立视觉机制，并归入新分类', () => {
+    const creative = effects.filter(effect => effect.category === 'reference_creative');
+    expect(creative).toHaveLength(20);
+    expect(new Set(creative.map(effect => effect.visual)).size).toBe(20);
+    expect(creative.every(effect => effect.atoms.length === 1 && effect.atoms[0].type === 'visualProgress')).toBe(true);
   });
 
   it('其余转场不存在完全相同的原子动画组合', () => {

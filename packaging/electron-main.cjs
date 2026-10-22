@@ -1,9 +1,11 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
-const {app, BrowserWindow, dialog, ipcMain, Menu, session} = require('electron');
+const {app, BrowserWindow, dialog, ipcMain, Menu, session, shell, net: electronNet} = require('electron');
 const {spawn, spawnSync} = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 const net = require('node:net');
+const {createHash, randomUUID} = require('node:crypto');
+const {normalizeRepository, checkForUpdate} = require('./github-updates.cjs');
 
 app.setName('MotionFlow');
 
@@ -141,6 +143,79 @@ ipcMain.handle('motionflow:save-download-file', async (_event, input) => {
   } catch (error) {
     await fs.promises.rm(temporaryPath, {force: true}).catch(() => {});
     throw error;
+  }
+});
+
+
+const updateSettingsPath = path.join(packageRoot, 'data', 'desktop-updates.json');
+let checkedUpdate = null;
+let downloadingUpdate = false;
+function readUpdateConfig() {
+  let repository = '';
+  try {repository = JSON.parse(fs.readFileSync(path.join(__dirname, 'update-config.json'),'utf8')).repository || '';} catch {}
+  try {const saved = JSON.parse(fs.readFileSync(updateSettingsPath,'utf8')); if(typeof saved.repository === 'string') repository = saved.repository;} catch {}
+  return {currentVersion: app.getVersion(), repository: normalizeRepository(repository)};
+}
+function assertDesktopCaller(event) {
+  if (event.sender !== mainWindow?.webContents) throw new Error('无效的更新请求');
+}
+ipcMain.handle('motionflow:get-update-config', event => {
+  assertDesktopCaller(event);
+  return readUpdateConfig();
+});
+ipcMain.handle('motionflow:set-update-repository', async (event, repository) => {
+  assertDesktopCaller(event);
+  if (downloadingUpdate) throw new Error('请等待当前下载完成');
+  const normalized = normalizeRepository(repository);
+  await fs.promises.mkdir(path.dirname(updateSettingsPath),{recursive:true});
+  await fs.promises.writeFile(updateSettingsPath,JSON.stringify({repository:normalized},null,2));
+  checkedUpdate = null;
+  return readUpdateConfig();
+});
+ipcMain.handle('motionflow:check-for-updates', async event => {
+  assertDesktopCaller(event);
+  checkedUpdate = await checkForUpdate(readUpdateConfig(), (url, options) => electronNet.fetch(url, options));
+  return checkedUpdate;
+});
+ipcMain.handle('motionflow:download-update', async event => {
+  assertDesktopCaller(event);
+  if (downloadingUpdate) throw new Error('正在下载，请稍候');
+  const asset = checkedUpdate?.status === 'available' ? checkedUpdate.asset : null;
+  if (!asset) throw new Error('请先检查更新并确认存在新版压缩包');
+  downloadingUpdate = true;
+  let temporaryPath;
+  let handle;
+  try {
+    const selection = await dialog.showSaveDialog(mainWindow,{
+      title:'保存 MotionFlow 新版',defaultPath:path.join(app.getPath('downloads'),path.basename(asset.name)),
+      filters:[{name:'ZIP 压缩包',extensions:['zip']}],
+    });
+    if(selection.canceled || !selection.filePath) return {canceled:true};
+    const response = await electronNet.fetch(asset.url, {signal:AbortSignal.timeout(15*60*1000)});
+    if(!response.ok || !response.body) throw new Error('新版下载失败，请检查网络后重试');
+    temporaryPath = selection.filePath + '.' + randomUUID() + '.download';
+    handle = await fs.promises.open(temporaryPath,'wx');
+    const hash = createHash('sha256');
+    let received = 0, lastSent = 0;
+    const total = asset.size || Number(response.headers.get('content-length')) || 0;
+    for await (const chunk of response.body) {
+      await handle.writeFile(chunk);hash.update(chunk);received += chunk.length;
+      if(Date.now()-lastSent>180) {
+        if(!event.sender.isDestroyed()) event.sender.send('motionflow:update-download-progress',{received,total});
+        lastSent = Date.now();
+      }
+    }
+    await handle.close();handle=null;
+    if(asset.size && received!==asset.size) throw new Error('下载文件不完整，请重试');
+    if(asset.digest && ('sha256:'+hash.digest('hex')).toLowerCase()!==asset.digest.toLowerCase())throw new Error('下载校验未通过，请重新下载');
+    await fs.promises.rename(temporaryPath,selection.filePath);temporaryPath=null;
+    if(!event.sender.isDestroyed()) event.sender.send('motionflow:update-download-progress',{received,total:received});
+    shell.showItemInFolder(selection.filePath);
+    return {canceled:false,filename:path.basename(selection.filePath)};
+  } finally {
+    if(handle) await handle.close().catch(()=>{});
+    if(temporaryPath) await fs.promises.rm(temporaryPath,{force:true}).catch(()=>{});
+    downloadingUpdate = false;
   }
 });
 

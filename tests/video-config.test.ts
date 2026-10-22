@@ -1,6 +1,6 @@
 import {describe, expect, it} from 'vitest';
 import {getDimensions, getSourceDimensions, REFERENCE_LIGHT_LOOP_IN_FRAMES} from '@/lib/video-config';
-import {atomValue, resolveAnimationFrame, resolveBreathingScale, resolveLoopFrame} from '@/remotion/animation';
+import {atomValue, resolveAnimationFrame, resolveBreathingScale, resolveLoopFrame, resolveVisibleEntryFrame} from '@/remotion/animation';
 import {getThreeImageMotion} from '@/remotion/three-image-motion';
 
 describe('视频规格与动画插值', () => {
@@ -25,6 +25,16 @@ describe('视频规格与动画插值', () => {
     const params = {scaleMultiplier: 1, translateMultiplier: 1, rotateMultiplier: 1, blurMultiplier: 1};
     expect(atomValue(atoms, 'translateX', 0, 24, 36, 0, 'medium', params)).toBe(-200);
     expect(atomValue(atoms, 'translateX', 36, 24, 36, 0, 'medium', params)).toBe(0);
+  });
+
+  it('黑场前移兼容旧快照且保持入场结束时间', () => {
+    const first = resolveVisibleEntryFrame(0, 36, 'combo_slide_rotate_bounce', 30);
+    expect(first).toBeGreaterThan(0);
+    expect(resolveVisibleEntryFrame(1, 36, 'combo_slide_rotate_bounce', 30) - first).toBeCloseTo(1);
+    expect(resolveVisibleEntryFrame(36, 36, 'combo_slide_rotate_bounce', 30)).toBe(36);
+    expect(resolveVisibleEntryFrame(0, 15, 'combo_slide_rotate_bounce', 30) / first).toBeCloseTo(15 / 36);
+    expect(resolveVisibleEntryFrame(0, 36, 'light_radial_clarity', 36)).toBe(0);
+    expect(resolveVisibleEntryFrame(0, 36, 'reference_envelope_letter', 48)).toBe(0);
   });
 
   it('组合动画在结尾反向执行同一段动画', () => {

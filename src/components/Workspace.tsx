@@ -24,7 +24,7 @@ const modeOptions = [
   {value: 'specific', label: '指定特效', note: '从已选中抽取'},
 ] as const;
 
-const categoryNames: Record<string, string> = {basic: '基础', combo: '组合', dynamic: '动感', glitch: '故障', camera: '镜头', '3d': '3D', light: '光效', reference_light: '参考光效'};
+const categoryNames: Record<string, string> = {basic: '基础', combo: '组合', dynamic: '动感', glitch: '故障', camera: '镜头', '3d': '3D', light: '光效', reference_light: '参考光效', reference_creative: '参考创意'};
 const statusNames: Record<string, string> = {pending: '等待中', running: '生成中', completed: '已完成', partial_failed: '部分失败', failed: '失败', waiting: '排队中', rendering: '渲染中'};
 
 async function jsonRequest<T>(url: string, init?: RequestInit): Promise<T> {
@@ -269,7 +269,7 @@ export function Workspace() {
           <div className="effect-cards">{visibleEffects.map((effect) => {
             const selected = selectedEffectIds.includes(effect.id);
             const previewing = effect.id === previewEffectId;
-            const effectTiming = effect.category === 'reference_light'
+            const effectTiming = effect.category === 'reference_creative' ? '创意入场 · 稳定展示' : effect.category === 'reference_light'
               ? '循环入场光效'
               : effect.type === 'combo' ? '入场＋出场' : `${effect.durationFrames} 帧`;
             return <button key={effect.id} className={`effect-card ${selected ? 'selected' : ''} ${previewing ? 'previewing' : ''}`} onClick={() => toggleEffect(effect.id)}><span className={`effect-icon category-${effect.category}`}><Play size={15} fill="currentColor" /></span><span className="effect-copy"><strong>{effect.name}</strong><small>{categoryNames[effect.category]} · {effectTiming}</small></span>{effectMode === 'specific' && <span className="check-dot">{selected && <Check size={12} />}</span>}</button>;

@@ -1,19 +1,21 @@
 import React from 'react';
 import {AbsoluteFill, Audio, Img, interpolate, useCurrentFrame} from 'remotion';
 import {DURATION_IN_FRAMES, REFERENCE_LIGHT_LOOP_IN_FRAMES} from '@/lib/video-config';
-import {atomValue, resolveAnimationFrame, resolveBreathingScale, resolveLoopFrame} from './animation';
+import {atomValue, resolveAnimationFrame, resolveBreathingScale, resolveLoopFrame, resolveVisibleEntryFrame} from './animation';
 import {CreativeVisual} from './CreativeVisual';
 import type {ImageIntroVideoProps} from './types';
 
 export const ImageIntroVideo: React.FC<ImageIntroVideoProps> = (props) => {
   const frame = useCurrentFrame();
   const {effect, introFrames, intensity, randomParams} = props;
-  const {animationFrame, isExiting} = resolveAnimationFrame(
+  const {animationFrame: timelineAnimationFrame, isExiting} = resolveAnimationFrame(
     frame,
     introFrames,
     DURATION_IN_FRAMES,
-    effect.type === 'combo' && effect.category !== 'reference_light',
+    effect.type === 'combo' && !['reference_light', 'reference_creative'].includes(effect.category),
   );
+  const entryFrame = resolveVisibleEntryFrame(frame, introFrames, effect.id, effect.durationFrames);
+  const animationFrame = isExiting ? timelineAnimationFrame : entryFrame;
   const value = (type: Parameters<typeof atomValue>[1], fallback: number) =>
     atomValue(effect.atoms, type, animationFrame, effect.durationFrames, introFrames, fallback, intensity, randomParams);
   const referenceLightLoopFrame = resolveLoopFrame(frame, REFERENCE_LIGHT_LOOP_IN_FRAMES);
@@ -28,9 +30,6 @@ export const ImageIntroVideo: React.FC<ImageIntroVideoProps> = (props) => {
   const rotateX = value('rotateX', 0);
   const skewX = value('skewX', 0);
   const skewY = value('skewY', 0);
-  const backgroundEntryOpacity = effect.type === 'combo'
-    ? interpolate(frame, [0, Math.max(1, Math.min(10, introFrames))], [0, 1], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'})
-    : 1;
   const opacity = isExiting ? 1 : value('opacity', 1);
   const blur = value('blur', 0);
   const mask = value('maskReveal', 0);
@@ -70,7 +69,7 @@ export const ImageIntroVideo: React.FC<ImageIntroVideoProps> = (props) => {
       {props.backgroundMusicSrc && (
         <Audio src={props.backgroundMusicSrc} trimBefore={0} trimAfter={DURATION_IN_FRAMES} volume={0.35} />
       )}
-      <Img src={props.imageSrc} style={{width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(44px) brightness(.58) saturate(1.1)', transform: 'scale(1.16)', opacity: backgroundEntryOpacity}} />
+      <Img src={props.imageSrc} style={{width: '100%', height: '100%', objectFit: 'cover', filter: 'blur(44px) brightness(.58) saturate(1.1)', transform: 'scale(1.16)', opacity: 1}} />
       {motionBlur > .2 && [3, 2, 1].map((layer) => (
         <AbsoluteFill key={layer} style={{opacity: Math.min(.18, motionBlur / 80), transform: `translateX(${-motionBlur * layer}px)`}}>
           <Img src={props.imageSrc} style={imageStyle} />

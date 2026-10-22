@@ -1,8 +1,9 @@
+param([string]$PackageName = 'MotionFlow-Desktop-Windows-x64')
+
 $ErrorActionPreference = 'Stop'
 
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $releaseRoot = Join-Path $projectRoot '.release'
-$packageName = 'MotionFlow-Desktop-Windows-x64'
 $packageRoot = Join-Path $releaseRoot $packageName
 $internalRoot = Join-Path $packageRoot '_internal'
 $archivePath = Join-Path $releaseRoot "$packageName.zip"
@@ -59,6 +60,17 @@ Copy-Item -LiteralPath $nodeCommand.Source -Destination (Join-Path $runtimeDir '
 New-Item -ItemType Directory -Force -Path (Join-Path $packageRoot 'data') | Out-Null
 
 Write-Host '[4/7] Bundling independent desktop runtime...'
+$projectPackage = Get-Content -LiteralPath (Join-Path $projectRoot 'package.json') -Raw | ConvertFrom-Json
+$projectVersion = $projectPackage.version
+$updateRepository = $env:MOTION_UPDATE_REPOSITORY
+if (-not $updateRepository) {
+  $configuredSource = Get-Content -LiteralPath (Join-Path $projectRoot 'packaging\update-config.json') -Raw | ConvertFrom-Json
+  $updateRepository = $configuredSource.repository
+}
+if (-not $updateRepository) {
+  $remoteUrl = & git config --get remote.origin.url
+  if ($LASTEXITCODE -eq 0 -and $remoteUrl -match 'github\.com[:/]([^/]+/[^/]+?)(?:\.git)?$') { $updateRepository = $Matches[1] }
+}
 $electronDist = Join-Path $electronModule 'dist'
 if (-not (Test-Path -LiteralPath (Join-Path $electronDist 'electron.exe'))) { throw 'Electron desktop runtime was not found' }
 Copy-Tree $electronDist $packageRoot
@@ -67,16 +79,19 @@ $desktopAppRoot = Join-Path $packageRoot 'resources\app'
 New-Item -ItemType Directory -Force -Path $desktopAppRoot | Out-Null
 Copy-Item -LiteralPath (Join-Path $projectRoot 'packaging\electron-main.cjs') -Destination (Join-Path $desktopAppRoot 'main.cjs')
 Copy-Item -LiteralPath (Join-Path $projectRoot 'packaging\electron-preload.cjs') -Destination (Join-Path $desktopAppRoot 'preload.cjs')
+Copy-Item -LiteralPath (Join-Path $projectRoot 'packaging\github-updates.cjs') -Destination (Join-Path $desktopAppRoot 'github-updates.cjs')
+$updateConfig = @{repository = [string]$updateRepository} | ConvertTo-Json
+[System.IO.File]::WriteAllText((Join-Path $desktopAppRoot 'update-config.json'), $updateConfig, [System.Text.UTF8Encoding]::new($false))
 [System.IO.File]::WriteAllText(
   (Join-Path $desktopAppRoot 'package.json'),
-  "{`r`n  `"name`": `"motionflow-desktop`",`r`n  `"version`": `"1.0.0`",`r`n  `"main`": `"main.cjs`"`r`n}`r`n",
+  "{`r`n  `"name`": `"motionflow-desktop`",`r`n  `"version`": `"$projectVersion`",`r`n  `"main`": `"main.cjs`"`r`n}`r`n",
   [System.Text.UTF8Encoding]::new($false)
 )
 Copy-Item -LiteralPath (Join-Path $projectRoot 'packaging\desktop-README.txt') -Destination (Join-Path $packageRoot 'README.txt')
 
 Write-Host '[5/7] Verifying desktop package...'
 $required = @(
-  'MotionFlow.exe', 'README.txt', 'resources\app\main.cjs', 'resources\app\preload.cjs',
+  'MotionFlow.exe', 'README.txt', 'resources\app\main.cjs', 'resources\app\preload.cjs', 'resources\app\github-updates.cjs', 'resources\app\update-config.json',
   'chrome_100_percent.pak', 'icudtl.dat', '_internal\runtime\node.exe',
   '_internal\.next\BUILD_ID', '_internal\node_modules\tsx\dist\cli.mjs',
   '_internal\node_modules\.remotion', '_internal\src\worker.ts', '_internal\assets\music'
