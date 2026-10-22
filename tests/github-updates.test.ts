@@ -1,7 +1,7 @@
 import {createRequire} from 'node:module';
 import {describe, expect, it, vi} from 'vitest';
 const require = createRequire(import.meta.url);
-const {compareVersions, normalizeRepository, getReleaseUpdate, checkForUpdate} = require('../packaging/github-updates.cjs');
+const {DEFAULT_UPDATE_REPOSITORY,compareVersions, normalizeRepository, getReleaseUpdate, checkForUpdate} = require('../packaging/github-updates.cjs');
 const repository='example/motionflow';
 const release=(version='v1.2.0')=>({tag_name:version,name:'New version',body:'Release notes',draft:false,prerelease:false,assets:[{name:'MotionFlow-Desktop-20261022-Windows-x64.zip',browser_download_url:`https://github.com/${repository}/releases/download/${version}/MotionFlow-Desktop-20261022-Windows-x64.zip`,size:1024,digest:'sha256:'+'a'.repeat(64)}]});
 
@@ -33,9 +33,11 @@ describe('GitHub Releases 软件更新',()=>{
   expect(()=>getReleaseUpdate({...release(),prerelease:true},'1.1.0',repository)).toThrow();
   expect(getReleaseUpdate({...release(),assets:[]},'1.1.0',repository)).toMatchObject({status:'available',asset:null,notes:'Release notes'});
  });
- it('未配置仓库时不联网',async()=>{
-  const fetcher=vi.fn();expect(await checkForUpdate({repository:'',currentVersion:'1.1.0'},fetcher)).toMatchObject({status:'not_configured'});
-  expect(fetcher).not.toHaveBeenCalled();
+ it('未配置或清空仓库时默认检查MotionFlow的GitHub正式版本',async()=>{
+  expect(DEFAULT_UPDATE_REPOSITORY).toBe('STurGeon-zhx/MotionFlow');
+  const fetcher=vi.fn(async(url: string)=>{void url;return new Response(JSON.stringify(release()),{status:200});});
+  await checkForUpdate({repository:'',currentVersion:'1.1.0'},fetcher);
+  expect(fetcher.mock.calls[0][0]).toBe('https://api.github.com/repos/STurGeon-zhx/MotionFlow/releases/latest');
  });
  it('通过最新Release接口获取可用正式版本',async()=>{
   const fetcher=vi.fn(async(url: string)=>{void url;return new Response(JSON.stringify(release()),{status:200});});

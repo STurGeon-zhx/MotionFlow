@@ -5,7 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const net = require('node:net');
 const {createHash, randomUUID} = require('node:crypto');
-const {normalizeRepository, checkForUpdate} = require('./github-updates.cjs');
+const {DEFAULT_UPDATE_REPOSITORY, normalizeRepository, checkForUpdate} = require('./github-updates.cjs');
 
 app.setName('MotionFlow');
 
@@ -154,7 +154,7 @@ function readUpdateConfig() {
   let repository = '';
   try {repository = JSON.parse(fs.readFileSync(path.join(__dirname, 'update-config.json'),'utf8')).repository || '';} catch {}
   try {const saved = JSON.parse(fs.readFileSync(updateSettingsPath,'utf8')); if(typeof saved.repository === 'string') repository = saved.repository;} catch {}
-  return {currentVersion: app.getVersion(), repository: normalizeRepository(repository)};
+  return {currentVersion: app.getVersion(), repository: normalizeRepository(repository) || DEFAULT_UPDATE_REPOSITORY};
 }
 function assertDesktopCaller(event) {
   if (event.sender !== mainWindow?.webContents) throw new Error('无效的更新请求');
@@ -166,7 +166,7 @@ ipcMain.handle('motionflow:get-update-config', event => {
 ipcMain.handle('motionflow:set-update-repository', async (event, repository) => {
   assertDesktopCaller(event);
   if (downloadingUpdate) throw new Error('请等待当前下载完成');
-  const normalized = normalizeRepository(repository);
+  const normalized = normalizeRepository(repository) || DEFAULT_UPDATE_REPOSITORY;
   await fs.promises.mkdir(path.dirname(updateSettingsPath),{recursive:true});
   await fs.promises.writeFile(updateSettingsPath,JSON.stringify({repository:normalized},null,2));
   checkedUpdate = null;

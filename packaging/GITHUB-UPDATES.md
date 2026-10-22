@@ -4,11 +4,11 @@
 
 ## 首次设置
 
-在软件中打开“检查更新 → GitHub 更新源”，输入公开仓库地址，例如 `https://github.com/owner/motionflow`，点击“保存并检查”。配置保存在本机 data/desktop-updates.json。
+软件默认检查公开仓库 `STurGeon-zhx/MotionFlow` 的最新正式 Release，打开“检查更新”即可使用，无需填写地址或登录。之前保存的空地址会自动回退到该默认仓库。需要更换发布仓库时，可展开“GitHub 更新源”修改；配置保存在本机 data/desktop-updates.json。
 
-如果希望转发的程序已经绑定仓库，可把 `packaging/update-config.json` 的 repository 设置成 `owner/motionflow`，再打包。也支持在打包时设置 `MOTION_UPDATE_REPOSITORY`，或从 origin 的 GitHub 远程地址自动识别。当前项目尚未配置 origin，不能凭空推断发布仓库。
+如果希望转发的程序已经绑定仓库，可把 `packaging/update-config.json` 的 repository 设置成 `owner/motionflow`，再打包。也支持在打包时设置 `MOTION_UPDATE_REPOSITORY`，或从 origin 的 GitHub 远程地址自动识别。当前项目的 origin 已关联 `https://github.com/STurGeon-zhx/MotionFlow.git`。
 
-公开 Release 无需登录。私有仓库需要额外的访问授权，本版本不内置私人令牌。
+默认发布仓库和 Release 已公开，检查及下载无需 GitHub 登录。
 
 ## 发布新版
 

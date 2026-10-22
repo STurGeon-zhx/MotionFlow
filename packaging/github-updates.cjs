@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
+const {repository: DEFAULT_UPDATE_REPOSITORY} = require('./update-config.json');
 const STABLE_VERSION = /^v?(\d+)\.(\d+)\.(\d+)$/;
 function parseVersion(version) {
   const match = STABLE_VERSION.exec(String(version || '').trim());
@@ -31,7 +33,7 @@ function getReleaseUpdate(release, currentVersion, repository) {
   };
 }
 async function checkForUpdate(config, fetchImpl=fetch) {
-  const repository=normalizeRepository(config.repository);
+  const repository=normalizeRepository(config.repository) || DEFAULT_UPDATE_REPOSITORY;
   if(!repository) return {status:'not_configured',currentVersion:config.currentVersion};
   let response;
   try {
@@ -42,4 +44,4 @@ async function checkForUpdate(config, fetchImpl=fetch) {
   if(!response.ok)throw new Error(`检查更新失败（${response.status}）`);
   return getReleaseUpdate(await response.json(),config.currentVersion,repository);
 }
-module.exports={compareVersions,normalizeRepository,getReleaseUpdate,checkForUpdate};
+module.exports={DEFAULT_UPDATE_REPOSITORY,compareVersions,normalizeRepository,getReleaseUpdate,checkForUpdate};
