@@ -1,9 +1,12 @@
+import {InterfaceMotion} from '@/components/InterfaceMotion';
+import {InterfaceDialogs} from '@/components/InterfaceDialogs';
 import {CheckUpdatesButton} from '@/components/CheckUpdatesButton';
 import type {Metadata} from 'next';
 import Link from 'next/link';
 import {History, Sparkles} from 'lucide-react';
 import {ToolSwitcher} from '@/components/ToolSwitcher';
 import './globals.css';
+import './workspace.css';
 
 export const metadata: Metadata = {
   title: 'MotionFlow · 图片动态视频工坊',
@@ -27,6 +30,8 @@ export default function RootLayout({children}: Readonly<{children: React.ReactNo
           </nav>
         </header>
         {children}
+        <InterfaceDialogs/>
+        <InterfaceMotion/>
       </body>
     </html>
   );

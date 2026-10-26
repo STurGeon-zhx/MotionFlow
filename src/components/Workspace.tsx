@@ -1,15 +1,16 @@
+/* eslint-disable @next/next/no-img-element -- Local authenticated media must not be fetched by the Next image optimizer. */
 'use client';
 
 import {useCallback, useEffect, useMemo, useRef, useState} from 'react';
-import Link from 'next/link';
 import {
-  AlertCircle, Check, CheckCircle2, ChevronDown, CircleDashed, Download, Film,
-  ImagePlus, LoaderCircle, Play, RotateCcw, Sparkles, Trash2, UploadCloud, WandSparkles, X,
+  Search, AlertCircle, Check, ChevronDown, Film,
+  ImagePlus, LoaderCircle, Play, Sparkles, Trash2, UploadCloud, X,
 } from 'lucide-react';
 import type {EffectPreset, ImageRecord, Intensity, Resolution, SingleIntroJobInput} from '@/lib/schema';
 import {MAX_WORKSPACE_IMAGES, VISIBLE_IMAGE_THUMBNAILS} from '@/lib/limits';
 import {EffectPreview} from './EffectPreview';
-import {BulkDownloadButton} from './BulkDownloadButton';
+import {useRenderBusy} from './useRenderBusy';
+import {CurrentTask, RecentTasks} from './TaskCenter';
 
 type JobItem = {id: string; effectId: string; effectName: string; status: string; progress: number; previewUrl: string | null; downloadUrl: string | null; errorMessage: string | null};
 type Job = {id: string; toolType: 'single_intro' | 'three_image_motion'; status: string; totalCount: number; completedCount: number; failedCount: number; items: JobItem[]; createdAt: string};
@@ -25,7 +26,6 @@ const modeOptions = [
 ] as const;
 
 const categoryNames: Record<string, string> = {basic: '基础', combo: '组合', dynamic: '动感', glitch: '故障', camera: '镜头', '3d': '3D', light: '光效', reference_light: '参考光效', reference_creative: '参考创意'};
-const statusNames: Record<string, string> = {pending: '等待中', running: '生成中', completed: '已完成', partial_failed: '部分失败', failed: '失败', waiting: '排队中', rendering: '渲染中'};
 
 async function jsonRequest<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, init);
@@ -35,10 +35,12 @@ async function jsonRequest<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export function Workspace() {
+  const renderBusy = useRenderBusy();
   const fileRef = useRef<HTMLInputElement>(null);
   const [images, setImages] = useState<ImageRecord[]>([]);
   const [effects, setEffects] = useState<EffectPreset[]>([]);
   const [previewEffectId, setPreviewEffectId] = useState('basic_zoom_in');
+  const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState('all');
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedEffectIds, setSelectedEffectIds] = useState<string[]>([]);
@@ -51,8 +53,6 @@ export function Workspace() {
   const [creating, setCreating] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [clearingImages, setClearingImages] = useState(false);
-  const [retryingAll, setRetryingAll] = useState(false);
-  const [retryingItemId, setRetryingItemId] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const [job, setJob] = useState<Job | null>(null);
   const [message, setMessage] = useState<{kind: 'error' | 'info'; text: string} | null>(null);
@@ -112,7 +112,7 @@ export function Workspace() {
   }, [activeJobId, activeJobStatus]);
 
   const previewEffect = effects.find((effect) => effect.id === previewEffectId) ?? effects[0];
-  const visibleEffects = useMemo(() => effects.filter((effect) => activeCategory === 'all' || effect.category === activeCategory), [effects, activeCategory]);
+  const visibleEffects = useMemo(() => effects.filter((effect) => (activeCategory === 'all' || effect.category === activeCategory) && (effect.name + effect.description).toLowerCase().includes(search.trim().toLowerCase())), [effects, activeCategory, search]);
   const totalCount = images.length;
   const selectedPoolSize = useMemo(() => {
     if (effectMode === 'basic_only') return effects.filter((effect) => effect.type === 'basic').length;
@@ -123,6 +123,7 @@ export function Workspace() {
   }, [effectMode, effects, selectedCategories, selectedEffectIds]);
 
   const uploadFiles = useCallback(async (files: File[]) => {
+    if (creating) return;
     setMessage(null);
     if (files.length + images.length > MAX_WORKSPACE_IMAGES) return setMessage({kind: 'error', text: `当前工作区最多保留 ${MAX_WORKSPACE_IMAGES} 张图片`});
     const form = new FormData();
@@ -134,9 +135,10 @@ export function Workspace() {
     } catch (error) {
       setMessage({kind: 'error', text: error instanceof Error ? error.message : '上传失败'});
     } finally { setUploading(false); }
-  }, [images.length]);
+  }, [images.length, creating]);
 
   async function removeImage(image: ImageRecord) {
+    if (creating) return;
     try {
       await jsonRequest(`/api/images/${image.id}`, {method: 'DELETE'});
       setImages((current) => current.filter((entry) => entry.id !== image.id));
@@ -144,7 +146,7 @@ export function Workspace() {
   }
 
   async function clearImages() {
-    if (images.length === 0) return;
+    if (creating || images.length === 0) return;
     setClearingImages(true);
     setMessage(null);
     try {
@@ -189,56 +191,37 @@ export function Workspace() {
     setCreating(true);
     try {
       const payload: SingleIntroJobInput = {toolType: 'single_intro', imageIds: images.map((image) => image.id), ratio: 'source', durationSec: 5, countPerImage: 1, effectMode, selectedCategories, selectedEffectIds, allowDuplicate: false, introDurationSec: introDuration, intensity, enableBreathing: breathing, resolution};
-      const data = await jsonRequest<{jobId: string}>('/api/video-jobs', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
-      const detail = await jsonRequest<{job: Job}>(`/api/video-jobs/${data.jobId}`);
-      setJob(detail.job);
+      await jsonRequest<{jobId: string}>('/api/video-jobs', {method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload)});
+      // 任务已持久化，历史记录负责展示进度；工作区只准备下一批素材。
+      setJob(null);
+      window.history.replaceState({}, '', window.location.pathname);
+      window.dispatchEvent(new Event('motionflow:tasks-changed'));
+      try {
+        await jsonRequest('/api/images', {method: 'DELETE'});
+        setImages([]);
+        if (fileRef.current) fileRef.current.value = '';
+        setMessage({kind: 'info', text: '任务已加入历史记录排队，可上传图片创建下一批任务。'});
+      } catch {
+        setMessage({kind: 'error', text: '任务已加入历史记录，但清空素材失败。请点击一键清除后再上传，请勿重复提交。'});
+      }
     } catch (error) { setMessage({kind: 'error', text: error instanceof Error ? error.message : '创建任务失败'}); }
     finally { setCreating(false); }
   }
 
-  async function retryFailed() {
-    if (!job) return;
-    setRetryingAll(true);
-    try {
-      await jsonRequest(`/api/video-jobs/${job.id}/retry-failed`, {method: 'POST'});
-      const detail = await jsonRequest<{job: Job}>(`/api/video-jobs/${job.id}`);
-      setJob(detail.job);
-    } catch (error) { setMessage({kind: 'error', text: error instanceof Error ? error.message : '重试失败'}); }
-    finally { setRetryingAll(false); }
-  }
-
-  async function retryItem(itemId: string) {
-    if (!job) return;
-    setRetryingItemId(itemId);
-    try {
-      await jsonRequest(`/api/video-job-items/${itemId}/retry`, {method: 'POST'});
-      const detail = await jsonRequest<{job: Job}>(`/api/video-jobs/${job.id}`);
-      setJob(detail.job);
-    } catch (error) { setMessage({kind: 'error', text: error instanceof Error ? error.message : '重试失败'}); }
-    finally { setRetryingItemId(null); }
-  }
-
-  const completedPercent = job ? Math.round(((job.completedCount + job.failedCount) / Math.max(1, job.totalCount)) * 100) : 0;
-  const completedItems = job?.items.filter((item) => item.downloadUrl) ?? [];
 
   return (
     <main className="workspace-page">
-      <div className="workspace-heading">
-        <div><span className="eyebrow"><WandSparkles size={14} /> 图片入场动效工坊</span><h1>一组图片，批量变成吸睛开场</h1><p>选择画幅和动效，生成标准 5 秒 MP4 视频。</p></div>
-        <div className="heading-stat"><strong>{effects.length || '—'}</strong><span>内置动效</span></div>
-      </div>
       {message && <div className={`notice ${message.kind}`}><AlertCircle size={17} /><span>{message.text}</span><button onClick={() => setMessage(null)} aria-label="关闭"><X size={15} /></button></div>}
 
       <div className="workspace-grid">
         <aside className="panel settings-panel">
-          <div className="section-header"><span>01</span><h3>添加图片</h3><small>{images.length}/{MAX_WORKSPACE_IMAGES} 张</small>{images.length > 0 && <button className="clear-materials-action" disabled={clearingImages || uploading} onClick={() => void clearImages()}>{clearingImages ? <LoaderCircle className="spin" size={13} /> : <Trash2 size={13} />}一键清除</button>}</div>
+          <div className="section-header"><span>01</span><h3>添加图片</h3><small>{images.length}/{MAX_WORKSPACE_IMAGES} 张</small>{images.length > 0 && <button className="clear-materials-action" disabled={creating || clearingImages || uploading} onClick={() => void clearImages()}>{clearingImages ? <LoaderCircle className="spin" size={13} /> : <Trash2 size={13} />}一键清除</button>}</div>
           <div className={`dropzone ${dragging ? 'dragging' : ''}`} onDragOver={(event) => {event.preventDefault(); setDragging(true);}} onDragLeave={() => setDragging(false)} onDrop={(event) => {event.preventDefault(); setDragging(false); void uploadFiles(Array.from(event.dataTransfer.files));}} onClick={() => fileRef.current?.click()}>
             {uploading ? <LoaderCircle className="spin" size={28} /> : <UploadCloud size={28} />}
             <strong>{uploading ? '正在读取图片…' : '拖入图片或点击上传'}</strong><span>JPG / PNG / WebP，单张不超过 20MB</span>
             <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onChange={(event) => {void uploadFiles(Array.from(event.target.files ?? [])); event.target.value = '';}} />
           </div>
           {/* Local API image URLs are intentionally rendered without optimization. */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
           {images.length > 0 && <div className={`image-strip ${images.length > VISIBLE_IMAGE_THUMBNAILS ? 'scrollable' : ''}`}>{images.map((image, index) => <div className="image-thumb" key={image.id}><img src={image.previewUrl} alt={image.originalName} loading="lazy" decoding="async" /><span>{index + 1}</span><button onClick={() => void removeImage(image)} aria-label={`删除 ${image.originalName}`}><Trash2 size={13} /></button></div>)}</div>}
 
           <div className="section-divider" />
@@ -263,8 +246,8 @@ export function Workspace() {
 
         <section className="panel effects-panel">
           <div className="panel-title-row"><div><span className="eyebrow">实时预览</span><h2>{previewEffect?.name ?? '载入特效中'}</h2></div><span className="live-pill"><i /> LIVE</span></div>
-          {previewEffect && <EffectPreview effect={previewEffect} imageSrc={images[0]?.previewUrl} sourceWidth={images[0]?.width} sourceHeight={images[0]?.height} introDuration={introDuration} intensity={intensity} breathing={breathing} />}
-          <div className="library-heading"><div><h3>特效库</h3><span>{effects.length} 个特效</span></div>{selectedEffectIds.length > 0 && <button className="text-button" onClick={() => setEffectMode('specific')}>仅从已选 {selectedEffectIds.length} 个中随机</button>}</div>
+          {previewEffect && <EffectPreview rendering={renderBusy || job?.status === 'running'} effect={previewEffect} imageSrc={images[0]?.previewUrl} sourceWidth={images[0]?.width} sourceHeight={images[0]?.height} introDuration={introDuration} intensity={intensity} breathing={breathing} />}
+          <div className="library-heading"><label className="effect-search"><Search size={16}/><input value={search} onChange={event=>setSearch(event.target.value)} placeholder="搜索特效名称" aria-label="搜索特效名称"/></label><div><h3>特效库</h3><span>{effects.length} 个特效</span></div>{selectedEffectIds.length > 0 && <button className="text-button" onClick={() => setEffectMode('specific')}>仅从已选 {selectedEffectIds.length} 个中随机</button>}</div>
           <div className="effect-tabs"><button className={activeCategory === 'all' ? 'active' : ''} onClick={() => setActiveCategory('all')}>全部</button>{Object.entries(categoryNames).map(([key, name]) => <button key={key} className={activeCategory === key ? 'active' : ''} onClick={() => setActiveCategory(key)}>{name}</button>)}</div>
           <div className="effect-cards">{visibleEffects.map((effect) => {
             const selected = selectedEffectIds.includes(effect.id);
@@ -272,32 +255,21 @@ export function Workspace() {
             const effectTiming = effect.category === 'reference_creative' ? '创意入场 · 稳定展示' : effect.category === 'reference_light'
               ? '循环入场光效'
               : effect.type === 'combo' ? '入场＋出场' : `${effect.durationFrames} 帧`;
-            return <button key={effect.id} className={`effect-card ${selected ? 'selected' : ''} ${previewing ? 'previewing' : ''}`} onClick={() => toggleEffect(effect.id)}><span className={`effect-icon category-${effect.category}`}><Play size={15} fill="currentColor" /></span><span className="effect-copy"><strong>{effect.name}</strong><small>{categoryNames[effect.category]} · {effectTiming}</small></span>{effectMode === 'specific' && <span className="check-dot">{selected && <Check size={12} />}</span>}</button>;
+            return <button key={effect.id} className={`effect-card ${selected ? 'selected' : ''} ${previewing ? 'previewing' : ''}`} onClick={() => toggleEffect(effect.id)}><span className="effect-thumbnail"><img src={`/effect-thumbnails/${effect.id}.webp`} alt="" loading="lazy" onError={event=>{event.currentTarget.onerror=null;event.currentTarget.src='/preview-placeholder.png';}}/><i><Play size={16} fill="currentColor"/></i></span><span className="effect-copy"><strong>{effect.name}</strong><small>{categoryNames[effect.category]} · {effectTiming}</small></span>{effectMode === 'specific' && <span className="check-dot">{selected && <Check size={12} />}</span>}</button>;
           })}</div>
         </section>
 
-        <aside className="panel result-panel">
-          <div className="panel-title-row"><div><span className="eyebrow">生成任务</span><h2>{job ? statusNames[job.status] : '准备生成'}</h2></div>{job && <span className={`status-pill status-${job.status}`}>{statusNames[job.status]}</span>}</div>
-          {!job ? <>
+        <aside className="right-column"><section className="panel result-panel">
+          {!job ? <><div className="panel-title-row"><h2>生成任务</h2></div>
             <div className="estimate-card"><div className="estimate-visual"><Film size={25} /><span>{totalCount || 0}</span></div><div><small>预计生成</small><strong>{images.length} 张图片 × 每张 1 条</strong><p>共 {totalCount} 条 · 每条 5 秒</p></div></div>
             <div className="summary-list"><Summary label="画面规格" value={`跟随原图 · ${resolution}`} /><Summary label="特效范围" value={`${selectedPoolSize} 个可用`} /><Summary label="入场设置" value={`${introDuration}s · ${intensity === 'weak' ? '弱' : intensity === 'medium' ? '中' : '强'}强度`} /><Summary label="预计输出" value="H.264 MP4 · 自动配乐" /></div>
             <button className="primary-action" disabled={creating || uploading || images.length === 0 || totalCount > 100} onClick={() => void createJob()}>{creating ? <LoaderCircle className="spin" size={18} /> : <Sparkles size={18} />}开始批量生成</button>
-            <p className="action-note">本地顺序渲染，可离开当前页面后从历史任务继续查看。</p>
+            <p className="action-note">本地并行渲染，可随时暂停或从历史任务继续查看。</p>
           </> : <>
-            <div className="progress-card"><div className="progress-top"><span>整体进度</span><strong>{completedPercent}%</strong></div><div className="progress-track"><i style={{width: `${completedPercent}%`}} /></div><div className="progress-counts"><span><CheckCircle2 size={14} />完成 {job.completedCount}</span><span><CircleDashed size={14} />剩余 {job.totalCount - job.completedCount - job.failedCount}</span>{job.failedCount > 0 && <span className="failed">失败 {job.failedCount}</span>}</div></div>
-            {completedItems.length > 0 && <BulkDownloadButton jobId={job.id} count={completedItems.length} />}
-            {job.failedCount > 0 && <div className="job-actions"><button className="secondary-action" disabled={retryingAll} onClick={() => void retryFailed()}>{retryingAll ? <LoaderCircle className="spin" size={16} /> : <RotateCcw size={16} />}重试全部失败项</button></div>}
-            {job.status === 'running' && <p className="retry-note">临时渲染异常会自动重试 2 次，无需手动操作。</p>}
-            <div className="result-list">{job.items.map((item, index) => <article className="result-item" key={item.id}>
-              <div className="result-media">{item.previewUrl ? <video src={item.previewUrl} muted playsInline preload="metadata" /> : <span>{item.status === 'rendering' ? <LoaderCircle className="spin" size={21} /> : item.status === 'failed' ? <AlertCircle size={21} /> : <Film size={21} />}</span>}<b>{String(index + 1).padStart(2, '0')}</b></div>
-              <div className="result-copy"><strong>{item.effectName}</strong><span>{statusNames[item.status] ?? item.status}{item.status === 'rendering' ? ` · ${Math.round(item.progress * 100)}%` : ''}</span>{item.errorMessage && <small title={item.errorMessage}>{item.errorMessage}</small>}</div>
-              {item.downloadUrl && <a href={item.downloadUrl} aria-label={`下载 ${item.effectName}`}><Download size={16} /></a>}
-              {item.status === 'failed' && <button className="item-retry" disabled={retryingItemId === item.id} onClick={() => void retryItem(item.id)} aria-label={`重试 ${item.effectName}`}>{retryingItemId === item.id ? <LoaderCircle className="spin" size={15} /> : <RotateCcw size={15} />}</button>}
-            </article>)}</div>
-            <button className="ghost-action" disabled={resetting} onClick={() => void startNewTask()}>{resetting ? <LoaderCircle className="spin" size={16} /> : <ImagePlus size={16} />}{resetting ? '正在清空图片…' : '创建新任务'}</button>
-            <Link className="history-link" href="/history">查看全部历史任务</Link>
+            <CurrentTask jobId={job.id} onDeleted={()=>setJob(null)}/>
+            <button className="ghost-action" disabled={resetting} onClick={()=>void startNewTask()}><ImagePlus size={16}/>创建新任务</button>
           </>}
-        </aside>
+        </section><RecentTasks/></aside>
       </div>
     </main>
   );

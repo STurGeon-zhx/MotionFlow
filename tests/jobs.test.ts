@@ -3,6 +3,8 @@ import path from 'node:path';
 import {beforeEach, describe, expect, it} from 'vitest';
 import {getDb} from '@/lib/db';
 import {claimNextItem, createVideoJob, deleteVideoJob, getCompletedItem, getJob, listJobs, recomputeJob, retryFailedItem, retryFailedItems} from '@/lib/jobs';
+import {pauseVideoJob, resumeVideoJob, releaseInterruptedItem, cleanupDeletedJobs, isItemExecutionActive} from '@/lib/job-control';
+import {completeItem, updateItemProgress, failItem} from '@/lib/jobs';
 import {ensureStorage, outputsDir, uploadsDir} from '@/lib/storage';
 import {DELETE as clearWorkspaceImages, GET as listWorkspaceImages, PATCH as reorderWorkspaceImages} from '@/app/api/images/route';
 import {DELETE as removeWorkspaceImage} from '@/app/api/images/[id]/route';
@@ -230,15 +232,58 @@ describe('任务服务', () => {
 
     expect(await deleteVideoJob(created.jobId, ownerB)).toBeNull();
     expect(fs.existsSync(outputPath)).toBe(true);
-    expect(await deleteVideoJob(created.jobId, ownerA)).toEqual({deleted: true});
+    expect(await deleteVideoJob(created.jobId, ownerA)).toMatchObject({deleted: true});
     expect(fs.existsSync(outputPath)).toBe(false);
     expect(db.prepare('SELECT id FROM video_jobs WHERE id = ?').get(created.jobId)).toBeUndefined();
     expect(db.prepare('SELECT id FROM video_job_items WHERE id = ?').get(item.id)).toBeUndefined();
   });
 
-  it('排队或生成中的任务不能删除', async () => {
+  it('排队任务也可以删除', async () => {
     const created = createVideoJob({imageIds: ['img_test_1'], ratio: 'source', durationSec: 5, countPerImage: 1, effectMode: 'basic_only', selectedCategories: [], selectedEffectIds: [], allowDuplicate: false, introDurationSec: 1.2, intensity: 'medium', enableBreathing: true, resolution: '720p'}, ownerA);
-    expect(await deleteVideoJob(created.jobId, ownerA)).toEqual({deleted: false, reason: 'active'});
-    expect(getJob(created.jobId, ownerA)).toBeTruthy();
+    expect(await deleteVideoJob(created.jobId, ownerA)).toMatchObject({deleted: true});
+    expect(getJob(created.jobId, ownerA)).toBeNull();
   });
+  it('暂停队列后不再领取，恢复后领取相同参数', () => {
+    const created=createVideoJob({imageIds:['img_test_1','img_test_2'],effectMode:'basic_only',ratio:'source',countPerImage:1,allowDuplicate:false,introDurationSec:1.2,intensity:'medium',enableBreathing:true,resolution:'720p'},ownerA);
+    expect(pauseVideoJob(created.jobId,ownerB)).toBeNull();
+    expect(pauseVideoJob(created.jobId,ownerA)?.status).toBe('paused');
+    expect(claimNextItem()).toBeNull();
+    resumeVideoJob(created.jobId,ownerA);
+    expect(claimNextItem()?.job_id).toBe(created.jobId);
+  });
+  it('中断后旧执行令牌不能写进度、完成或失败，已完成结果保留', () => {
+    const created=createVideoJob({imageIds:['img_test_1','img_test_2'],effectMode:'basic_only',ratio:'source',countPerImage:1,allowDuplicate:false,introDurationSec:1.2,intensity:'medium',enableBreathing:true,resolution:'720p'},ownerA);
+    const done=claimNextItem()!;completeItem(done,'kept.mp4');
+    const old=claimNextItem()!;
+    expect(pauseVideoJob(created.jobId,ownerA)?.status).toBe('pausing');
+    expect(isItemExecutionActive(old)).toBe(false);
+    expect(completeItem(old,'late.mp4')).toBe(false);
+    releaseInterruptedItem(old);
+    expect((getJob(created.jobId,ownerA) as {status:string}).status).toBe('paused');
+    resumeVideoJob(created.jobId,ownerA);
+    const current=claimNextItem()!;expect(current.id).toBe(old.id);expect(current.run_token).not.toBe(old.run_token);
+    updateItemProgress(old.id,.9,old.run_token);failItem(old,new Error('旧进程'));
+    expect(completeItem(old,'late.mp4')).toBe(false);
+    expect(getDb().prepare('SELECT status,progress FROM video_job_items WHERE id = ?').get(current.id)).toMatchObject({status:'rendering',progress:0});
+    expect(getDb().prepare('SELECT status FROM video_job_items WHERE id = ?').get(done.id)).toMatchObject({status:'completed'});
+  });
+  it('删除渲染中任务立即隐藏，释放进程后清理，不删共享源图片', async () => {
+    const created=createVideoJob({imageIds:['img_test_1'],effectMode:'basic_only',ratio:'source',countPerImage:1,allowDuplicate:false,introDurationSec:1.2,intensity:'medium',enableBreathing:true,resolution:'720p'},ownerA);
+    const item=claimNextItem()!;
+    expect(await deleteVideoJob(created.jobId,ownerA)).toMatchObject({deleted:true,pendingCleanup:true});
+    expect(listJobs(ownerA).jobs).toHaveLength(0);expect(getJob(created.jobId,ownerA)).toBeNull();
+    expect(isItemExecutionActive(item)).toBe(false);
+    releaseInterruptedItem(item);await cleanupDeletedJobs();
+    expect(getDb().prepare('SELECT id FROM video_jobs WHERE id = ?').get(created.jobId)).toBeUndefined();
+    expect(getDb().prepare('SELECT id FROM images WHERE id = ?').get('img_test_1')).toBeTruthy();
+  });
+
+  it('Worker 离线且心跳过期时，暂停能直接收敛而不永久停在暂停中',()=>{
+    const created=createVideoJob({imageIds:['img_test_1'],effectMode:'basic_only',ratio:'source',countPerImage:1,allowDuplicate:false,introDurationSec:1.2,intensity:'medium',enableBreathing:true,resolution:'720p'},ownerA);
+    const item=claimNextItem()!;
+    getDb().prepare("UPDATE video_job_items SET heartbeat_at='2000-01-01T00:00:00.000Z' WHERE id=?").run(item.id);
+    expect(pauseVideoJob(created.jobId,ownerA)?.status).toBe('paused');
+    resumeVideoJob(created.jobId,ownerA);expect(claimNextItem()?.id).toBe(item.id);
+  });
+
 });

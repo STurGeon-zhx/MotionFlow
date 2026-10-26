@@ -1,5 +1,6 @@
 'use client';
 
+import {showMessage} from './InterfaceDialogs';
 import {useEffect, useState} from 'react';
 import {Download, FolderOpen, LoaderCircle} from 'lucide-react';
 import type {DownloadMode} from '@/lib/package-mode';
@@ -11,7 +12,7 @@ type DirectoryPickerWindow = Window & {
     saveDownloadFile: (input: {directoryPath: string; url: string; filename: string}) => Promise<{filename: string}>;
   };
 };
-type DownloadItem = {downloadUrl: string | null; downloadFilename: string | null};
+type DownloadItem = {id: string;downloadUrl: string | null; downloadFilename: string | null};
 type SelectedDirectory = {
   name: string;
   nativePath?: string;
@@ -40,7 +41,7 @@ function getUniqueFilename(filename: string, counts: Map<string, number>) {
   return `${stem}_${duplicateIndex}.mp4`;
 }
 
-export function BulkDownloadButton({jobId, count, compact = false}: {jobId: string; count: number; compact?: boolean}) {
+export function BulkDownloadButton({jobId, count, compact = false, itemIds}: {jobId: string; count: number; compact?: boolean; itemIds?: string[]}) {
   const [mode, setMode] = useState<DownloadMode | null>(null);
   const [directory, setDirectory] = useState<SelectedDirectory | null>(null);
   const [exporting, setExporting] = useState(false);
@@ -76,7 +77,7 @@ export function BulkDownloadButton({jobId, count, compact = false}: {jobId: stri
       const response = await fetch(`/api/video-jobs/${jobId}`, {cache: 'no-store'});
       const data = await response.json() as {success?: boolean; error?: string; job?: {items: DownloadItem[]}};
       if (!response.ok || !data.success || !data.job) throw new Error(data.error ?? '读取任务失败');
-      const items = data.job.items.filter((item) => item.downloadUrl && item.downloadFilename);
+      const items = data.job.items.filter((item) => item.downloadUrl && item.downloadFilename && (!itemIds || itemIds.includes(item.id)));
       const filenameCounts = new Map<string, number>();
 
       for (let index = 0; index < items.length; index++) {
@@ -97,10 +98,10 @@ export function BulkDownloadButton({jobId, count, compact = false}: {jobId: stri
         }
         setCompleted(index + 1);
       }
-      window.alert(`已将 ${items.length} 条 MP4 保存到“${targetDirectory.name}”文件夹`);
+      void showMessage(`已将 ${items.length} 条 MP4 保存到“${targetDirectory.name}”文件夹`);
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') return;
-      window.alert(error instanceof Error ? error.message : '导出失败');
+      void showMessage(error instanceof Error ? error.message : '导出失败');
     } finally {
       setExporting(false);
     }
@@ -114,17 +115,17 @@ export function BulkDownloadButton({jobId, count, compact = false}: {jobId: stri
 
   if (mode === 'zip') {
     return compact
-      ? <a href={`/api/video-jobs/${jobId}/download-zip`} title="下载全部成片 ZIP" aria-label="下载全部成片 ZIP"><Download size={16} /></a>
+      ? <a href={`/api/video-jobs/${jobId}/download-zip${itemIds ? `?items=${encodeURIComponent(itemIds.join(','))}` : ''}`} title="下载全部成片 ZIP" aria-label="下载全部成片 ZIP"><Download size={16} /></a>
       : <a className="primary-action one-click-download" href={`/api/video-jobs/${jobId}/download-zip`}><Download size={17} />下载全部 {count} 条（ZIP）</a>;
   }
 
   if (compact) {
-    return <button disabled={exporting} onClick={() => void exportMp4()} title="选择位置并导出全部 MP4" aria-label="选择位置并导出全部 MP4">{exporting ? <LoaderCircle className="spin" size={16} /> : <Download size={16} />}</button>;
+    return <button className="compact-mp4-export" disabled={exporting} onClick={() => void exportMp4()} title={itemIds ? "选择位置并导出已选 MP4" : "选择位置并导出全部 MP4"} aria-label={itemIds ? "选择位置并导出已选 MP4" : "选择位置并导出全部 MP4"}>{exporting ? <LoaderCircle className="spin" size={16} /> : <Download size={16} />}<span className="compact-download-label">下载（{count}）</span></button>;
   }
 
   return <div className="bulk-download-controls">
     <button className="download-location-action" disabled={exporting} onClick={() => void chooseDirectory().catch((error) => {
-      if (!(error instanceof DOMException && error.name === 'AbortError')) window.alert(error instanceof Error ? error.message : '选择文件夹失败');
+      if (!(error instanceof DOMException && error.name === 'AbortError')) void showMessage(error instanceof Error ? error.message : '选择文件夹失败');
     })}><FolderOpen size={15} /><span>{directory ? `保存到：${directory.name}` : '选择下载位置'}</span></button>
     <button className="primary-action one-click-download" disabled={exporting} onClick={() => void exportMp4()}>{exporting ? <LoaderCircle className="spin" size={17} /> : <Download size={17} />}{exporting ? `正在导出 ${completed}/${count}` : `导出全部 ${count} 条 MP4`}</button>
   </div>;

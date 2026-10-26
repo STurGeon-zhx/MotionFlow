@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('motionFlowDesktop', {
   getUpdateConfig: () => ipcRenderer.invoke('motionflow:get-update-config'),
   setUpdateRepository: repository => ipcRenderer.invoke('motionflow:set-update-repository', repository),
   checkForUpdates: () => ipcRenderer.invoke('motionflow:check-for-updates'),
+  applyUpdate: confirmed => ipcRenderer.invoke('motionflow:apply-update', confirmed),
   downloadUpdate: () => ipcRenderer.invoke('motionflow:download-update'),
   onUpdateDownloadProgress: handler => {
     const listener = (_event, progress) => handler(progress);

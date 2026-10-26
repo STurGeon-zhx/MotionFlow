@@ -14,6 +14,7 @@ const transientPatterns = [
   'timed out',
   'timeout',
   '总耗时超过',
+  '无响应',
 ];
 
 export function getRenderErrorMessage(error: unknown) {

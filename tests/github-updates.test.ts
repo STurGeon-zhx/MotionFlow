@@ -51,3 +51,66 @@ describe('GitHub Releases 软件更新',()=>{
   await expect(checkForUpdate(config,async()=>{throw Error('offline');})).rejects.toThrow('连接 GitHub 失败');
  });
 });
+
+// Signed code updates do not modify the active version until every file is verified.
+const updateFs = require('node:fs');
+const updateOs = require('node:os');
+const updatePath = require('node:path');
+const crypto = require('node:crypto');
+const codeUpdates = require('../packaging/code-updates.cjs');
+const keyPair = crypto.generateKeyPairSync('ed25519');
+const updatePublicKey = keyPair.publicKey.export({type:'spki',format:'pem'});
+const runtimeId = 'test-runtime';
+function signedFixture(change: (manifest: Record<string, unknown>) => void = ()=>{}) {
+ const files=['server.ts','package.json','.next/BUILD_ID','src/worker.ts'].map(file=>({path:file,url:`https://github.com/example/motionflow/releases/download/v1.2.0/${encodeURIComponent(file)}`,size:4,sha256:crypto.createHash('sha256').update('test').digest('hex')}));
+ const manifest: Record<string,unknown>={schemaVersion:1,version:'1.2.0',runtimeId,files};change(manifest);
+ const payload=Buffer.from(JSON.stringify(manifest));return {payload:payload.toString('base64'),signature:crypto.sign(null,payload,keyPair.privateKey).toString('base64')};
+}
+const codeOptions=()=>({publicKey:updatePublicKey,runtimeId,baseUrl:'https://github.com/example/motionflow/releases/download/',fetchImpl:async()=>new Response('test'),expectedVersion:'1.2.0',currentVersion:'1.1.1'});
+async function inUpdateDirectory(operation:(root:string)=>Promise<void>){const root=updateFs.mkdtempSync(updatePath.join(updateOs.tmpdir(),'motion-update-test-'));try{await operation(root);}finally{updateFs.rmSync(root,{recursive:true,force:true});}}
+describe('软件内签名代码更新',()=>{
+ it('验证签名后暂存文件，不改活动版本，不下载整包',async()=>inUpdateDirectory(async root=>{
+  const marker=await codeUpdates.stageCodeUpdate(signedFixture(),root,codeOptions());
+  expect(marker.version).toBe('1.2.0');expect(codeUpdates.readPointer(root)).toEqual({});
+  expect(updateFs.readFileSync(updatePath.join(root,'versions/1.2.0/server.ts'),'utf8')).toBe('test');
+  expect(await codeUpdates.verifyStaged(root,'1.2.0',runtimeId,updatePublicKey)).toContain('1.2.0');
+ }));
+ it('拒绝无效签名、运行环境不匹配和版本号不匹配',async()=>inUpdateDirectory(async root=>{
+  await expect(codeUpdates.stageCodeUpdate({...signedFixture(),signature:Buffer.alloc(64).toString('base64')},root,codeOptions())).rejects.toThrow('签名');
+  await expect(codeUpdates.stageCodeUpdate(signedFixture(m=>{m.runtimeId='other';}),root,codeOptions())).rejects.toThrow('运行环境');
+  await expect(codeUpdates.stageCodeUpdate(signedFixture(),root,{...codeOptions(),expectedVersion:'9.0.0'})).rejects.toThrow('版本');
+ }));
+ it('拒绝目录穿越、绝对路径、Windows特殊路径及替换用户数据',()=>{
+  for(const file of ['../data/db','/absolute','C:/Windows/file','src/../data/db','src/con.txt','src/file.','node_modules/pkg.js','data/db'])expect(()=>codeUpdates.safeRelative(file)).toThrow();
+ });
+ it('断网和文件损坏不改变旧版，并清理暂存目录',async()=>inUpdateDirectory(async root=>{
+  for(const fetchImpl of [async()=>{throw Error('offline');},async()=>new Response('evil')]){
+   await expect(codeUpdates.stageCodeUpdate(signedFixture(),root,{...codeOptions(),fetchImpl})).rejects.toThrow();
+   expect(codeUpdates.readPointer(root)).toEqual({});expect(updateFs.readdirSync(updatePath.join(root,'staging'))).toHaveLength(0);
+  }
+ }));
+ it('应用前重新验证文件与签名，拒绝已被修改的暂存内容',async()=>inUpdateDirectory(async root=>{
+  await codeUpdates.stageCodeUpdate(signedFixture(),root,codeOptions());
+  updateFs.writeFileSync(updatePath.join(root,'versions/1.2.0/server.ts'),'evil');
+  await expect(codeUpdates.verifyStaged(root,'1.2.0',runtimeId,updatePublicKey)).rejects.toThrow('损坏');
+ }));
+ it('健康检查失败恢复版本指针和数据库，并重新启动旧版',async()=>inUpdateDirectory(async root=>{
+  await codeUpdates.stageCodeUpdate(signedFixture(),root,codeOptions());
+  const restore=vi.fn(),restartPrevious=vi.fn();
+  await expect(codeUpdates.activateCodeUpdate(root,'1.2.0',{...codeOptions(),backup:async()=> 'snapshot',restore,stop:vi.fn(),startAndCheck:async()=>false,restartPrevious})).rejects.toThrow('已恢复旧版');
+  expect(restore).toHaveBeenCalledWith('snapshot');expect(restartPrevious).toHaveBeenCalledOnce();expect(codeUpdates.readPointer(root)).toEqual({});
+ }));
+ it('健康检查通过才完成切换，并保留旧数据',async()=>inUpdateDirectory(async root=>{
+  const data=updatePath.join(root,'data');updateFs.mkdirSync(data);updateFs.writeFileSync(updatePath.join(data,'history'),'keep');
+  await codeUpdates.stageCodeUpdate(signedFixture(),root,codeOptions());
+  await codeUpdates.activateCodeUpdate(root,'1.2.0',{...codeOptions(),backup:async()=>null,restore:vi.fn(),startAndCheck:async()=>true});
+  expect(codeUpdates.readPointer(root).version).toBe('1.2.0');expect(updateFs.readFileSync(updatePath.join(data,'history'),'utf8')).toBe('keep');
+ }));
+ it('备份失败不会恢复不完整备份，并重新启动旧服务',async()=>inUpdateDirectory(async root=>{
+  await codeUpdates.stageCodeUpdate(signedFixture(),root,codeOptions());
+  const restore=vi.fn(),restartPrevious=vi.fn();
+  await expect(codeUpdates.activateCodeUpdate(root,'1.2.0',{...codeOptions(),backup:async()=>{throw Error('disk full');},restore,stop:vi.fn(),startAndCheck:vi.fn(),restartPrevious})).rejects.toThrow('已恢复旧版');
+  expect(restore).not.toHaveBeenCalled();expect(restartPrevious).toHaveBeenCalledOnce();expect(codeUpdates.readPointer(root)).toEqual({});
+ }));
+
+});

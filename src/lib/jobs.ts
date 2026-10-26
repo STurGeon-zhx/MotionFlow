@@ -23,6 +23,7 @@ export type ItemRow = {
   id: string; job_id: string; image_id: string; effect_id: string; effect_name: string;
   effect_snapshot_json: string; seed: number; params_json: string; status: string; progress: number;
   music_name: string | null; music_path: string | null; position: number;
+  run_token?: string | null; heartbeat_at?: string | null; stage?: string;
   output_path: string | null; error_message: string | null; created_at: string; updated_at: string;
 };
 
@@ -142,7 +143,9 @@ function serializeItem(row: ItemRow & {original_name: string}, toolType: ToolTyp
     previewUrl: row.status === 'completed' ? `/api/video-files/${row.id}` : null,
     downloadUrl: row.status === 'completed' ? `/api/video-files/${row.id}?download=1` : null,
     downloadFilename: row.status === 'completed' ? getVideoDownloadFilename(row.original_name) : null,
-    errorMessage: row.error_message,
+    errorMessage: row.error_message, stage: row.stage ?? row.status, heartbeatAt: row.heartbeat_at ?? null,
+    thumbnailUrl: `/api/images/${row.image_id}`,
+    stalled: row.status === 'rendering' && Date.now() - Date.parse(row.updated_at) > 60_000,
   };
 }
 
@@ -158,6 +161,8 @@ function serializeJob(row: JobRow, withItems = false) {
     groupCount: toolType === 'three_image_motion' ? input.imageIds.length / 3 : input.imageIds.length,
     durationSec: input.durationSec, ratio: input.ratio, resolution: input.resolution,
     createdAt: row.created_at, updatedAt: row.updated_at,
+    thumbnailUrl: (() => { const image = getDb().prepare('SELECT image_id FROM video_job_items WHERE job_id = ? ORDER BY position LIMIT 1').get(row.id) as {image_id: string} | undefined; return image ? `/api/images/${image.image_id}` : null; })(),
+    workerOnline: Date.now() - Number((getDb().prepare("SELECT value FROM app_meta WHERE key = 'worker_heartbeat'").get() as {value: string} | undefined)?.value ?? 0) < 15_000,
   };
   if (!withItems) return base;
   const items = getDb().prepare(`SELECT item.*, image.original_name
@@ -167,7 +172,7 @@ function serializeJob(row: JobRow, withItems = false) {
 }
 
 export function getJob(jobId: string, ownerIp: string) {
-  const row = getDb().prepare('SELECT * FROM video_jobs WHERE id = ? AND owner_ip = ?').get(jobId, ownerIp) as JobRow | undefined;
+  const row = getDb().prepare("SELECT * FROM video_jobs WHERE id = ? AND owner_ip = ? AND status <> 'deleting'").get(jobId, ownerIp) as JobRow | undefined;
   return row ? serializeJob(row, true) : null;
 }
 
@@ -175,40 +180,17 @@ export function listJobs(ownerIp: string, page = 1, pageSize = 12) {
   const db = getDb();
   const safeSize = Math.min(Math.max(pageSize, 1), 50);
   const safePage = Math.max(page, 1);
-  const total = (db.prepare('SELECT COUNT(*) AS count FROM video_jobs WHERE owner_ip = ?').get(ownerIp) as {count: number}).count;
-  const rows = db.prepare('SELECT * FROM video_jobs WHERE owner_ip = ? ORDER BY created_at DESC LIMIT ? OFFSET ?')
+  const total = (db.prepare("SELECT COUNT(*) AS count FROM video_jobs WHERE owner_ip = ? AND status <> 'deleting'").get(ownerIp) as {count: number}).count;
+  const rows = db.prepare("SELECT * FROM video_jobs WHERE owner_ip = ? AND status <> 'deleting' ORDER BY created_at DESC LIMIT ? OFFSET ?")
     .all(ownerIp, safeSize, (safePage - 1) * safeSize) as JobRow[];
   return {jobs: rows.map((row) => serializeJob(row)), total, page: safePage, pageSize: safeSize};
 }
 
-function isPathInside(root: string, candidate: string) {
-  const resolvedRoot = path.resolve(root);
-  const resolvedCandidate = path.resolve(candidate);
-  return resolvedCandidate.startsWith(`${resolvedRoot}${path.sep}`);
-}
-
-export async function deleteVideoJob(jobId: string, ownerIp: string) {
-  const db = getDb();
-  const job = db.prepare('SELECT id FROM video_jobs WHERE id = ? AND owner_ip = ?').get(jobId, ownerIp) as {id: string} | undefined;
-  if (!job) return null;
-  const active = db.prepare("SELECT 1 FROM video_job_items WHERE job_id = ? AND status IN ('waiting', 'rendering') LIMIT 1").get(jobId);
-  if (active) return {deleted: false as const, reason: 'active' as const};
-
-  const items = db.prepare('SELECT id, output_path FROM video_job_items WHERE job_id = ?').all(jobId) as Array<{id: string; output_path: string | null}>;
-  const files = new Set<string>();
-  for (const item of items) {
-    if (item.output_path && isPathInside(outputsDir, item.output_path)) files.add(path.resolve(item.output_path));
-    files.add(path.join(outputsDir, `${item.id}.mp4`));
-    files.add(path.join(tempDir, `${item.id}.mp4`));
-  }
-  await Promise.all([...files].map((filePath) => fs.promises.rm(filePath, {force: true})));
-  const deleted = db.prepare('DELETE FROM video_jobs WHERE id = ? AND owner_ip = ?').run(jobId, ownerIp);
-  return {deleted: deleted.changes === 1};
-}
+export {deleteVideoJob} from './job-control';
 
 export function retryFailedItems(jobId: string, ownerIp: string) {
   const db = getDb();
-  if (!db.prepare('SELECT id FROM video_jobs WHERE id = ? AND owner_ip = ?').get(jobId, ownerIp)) return null;
+  if (!db.prepare("SELECT id FROM video_jobs WHERE id = ? AND owner_ip = ? AND status <> 'deleting'").get(jobId, ownerIp)) return null;
   const result = db.prepare(`UPDATE video_job_items SET status = 'waiting', progress = 0, error_message = NULL,
     output_path = NULL, updated_at = ? WHERE job_id = ? AND status = 'failed'`).run(new Date().toISOString(), jobId);
   recomputeJob(jobId);
@@ -218,7 +200,7 @@ export function retryFailedItems(jobId: string, ownerIp: string) {
 export function retryFailedItem(itemId: string, ownerIp: string) {
   const db = getDb();
   const item = db.prepare(`SELECT item.id, item.job_id, item.status FROM video_job_items item
-    JOIN video_jobs job ON job.id = item.job_id WHERE item.id = ? AND job.owner_ip = ?`)
+    JOIN video_jobs job ON job.id = item.job_id WHERE item.id = ? AND job.owner_ip = ? AND job.status <> 'deleting'`)
     .get(itemId, ownerIp) as {id: string; job_id: string; status: string} | undefined;
   if (!item) return null;
   if (item.status !== 'failed') return {jobId: item.job_id, retried: false};
@@ -235,10 +217,13 @@ export function recomputeJob(jobId: string) {
       SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed,
       SUM(CASE WHEN status = 'rendering' THEN 1 ELSE 0 END) AS rendering
     FROM video_job_items WHERE job_id = ?`).get(jobId) as {total: number; completed: number; failed: number; rendering: number};
+  const current = db.prepare('SELECT status FROM video_jobs WHERE id = ?').get(jobId) as {status: string} | undefined;
+  if (!current || current.status === 'deleting') return;
   let status = 'pending';
   if (counts.completed + counts.failed === counts.total) {
     status = counts.failed === 0 ? 'completed' : counts.completed === 0 ? 'failed' : 'partial_failed';
   } else if (counts.rendering > 0 || counts.completed > 0 || counts.failed > 0) status = 'running';
+  if (current.status === 'paused' || current.status === 'pausing') status = counts.rendering ? 'pausing' : 'paused';
   db.prepare('UPDATE video_jobs SET status = ?, completed_count = ?, failed_count = ?, updated_at = ? WHERE id = ?')
     .run(status, counts.completed, counts.failed, new Date().toISOString(), jobId);
 }
@@ -247,7 +232,7 @@ export function recoverInterruptedItems() {
   const db = getDb();
   const interrupted = db.prepare("SELECT id, job_id FROM video_job_items WHERE status = 'rendering'").all() as Array<{id: string; job_id: string}>;
   if (interrupted.length === 0) return 0;
-  db.prepare("UPDATE video_job_items SET status = 'waiting', progress = 0, error_message = NULL, output_path = NULL, updated_at = ? WHERE status = 'rendering'")
+  db.prepare("UPDATE video_job_items SET status = 'waiting', progress = 0, stage = 'waiting', run_token = NULL, heartbeat_at = NULL, error_message = NULL, output_path = NULL, updated_at = ? WHERE status = 'rendering'")
     .run(new Date().toISOString());
   for (const item of interrupted) {
     for (const candidate of [path.join(tempDir, `${item.id}.mp4`), path.join(outputsDir, `${item.id}.mp4`)]) fs.rmSync(candidate, {force: true});
@@ -261,12 +246,14 @@ export function claimNextItem(options: {allowThreeImageMotion?: boolean} = {}): 
   return db.transaction(() => {
     const row = options.allowThreeImageMotion === false
       ? db.prepare(`SELECT item.* FROM video_job_items item JOIN video_jobs job ON job.id = item.job_id
-          WHERE item.status = 'waiting' AND job.tool_type <> 'three_image_motion'
+          WHERE item.status = 'waiting' AND job.status IN ('pending', 'running') AND job.tool_type <> 'three_image_motion'
           ORDER BY item.created_at, item.position, item.id LIMIT 1`).get() as ItemRow | undefined
-      : db.prepare("SELECT * FROM video_job_items WHERE status = 'waiting' ORDER BY created_at, position, id LIMIT 1").get() as ItemRow | undefined;
+      : db.prepare("SELECT item.* FROM video_job_items item JOIN video_jobs job ON job.id = item.job_id WHERE item.status = 'waiting' AND job.status IN ('pending', 'running') ORDER BY item.created_at, item.position, item.id LIMIT 1").get() as ItemRow | undefined;
     if (!row) return null;
-    const changed = db.prepare("UPDATE video_job_items SET status = 'rendering', progress = 0, updated_at = ? WHERE id = ? AND status = 'waiting'")
-      .run(new Date().toISOString(), row.id);
+    const runToken = crypto.randomUUID();
+    const now = new Date().toISOString();
+    const changed = db.prepare("UPDATE video_job_items SET status = 'rendering', progress = 0, stage = 'preparing', run_token = ?, heartbeat_at = ?, updated_at = ? WHERE id = ? AND status = 'waiting'")
+      .run(runToken, now, now, row.id);
     if (changed.changes !== 1) return null;
     const job = db.prepare('SELECT tool_type, request_json FROM video_jobs WHERE id = ?').get(row.job_id) as {tool_type: ToolType | null; request_json: string};
     const rawInput = JSON.parse(job.request_json) as Record<string, unknown>;
@@ -279,7 +266,7 @@ export function claimNextItem(options: {allowThreeImageMotion?: boolean} = {}): 
     const images = imageIds.map((id) => imageMap.get(id)).filter((image): image is ImageRow => Boolean(image));
     if (images.length !== imageIds.length) throw new Error('渲染任务的图片不存在');
     recomputeJob(row.job_id);
-    const common = {...row, status: 'rendering', image: images[0], params: JSON.parse(row.params_json)};
+    const common = {...row, run_token: runToken, heartbeat_at: now, status: 'rendering', image: images[0], params: JSON.parse(row.params_json)};
     if (toolType === 'three_image_motion') {
       if (images.length !== 3) throw new Error('三图微动任务必须包含三张图片');
       return {...common, toolType, images: images as [ImageRow, ImageRow, ImageRow], request: request as ThreeImageMotionJobInput, effect: null};
@@ -288,26 +275,29 @@ export function claimNextItem(options: {allowThreeImageMotion?: boolean} = {}): 
   })();
 }
 
-export function updateItemProgress(itemId: string, progress: number) {
-  getDb().prepare("UPDATE video_job_items SET progress = ?, updated_at = ? WHERE id = ? AND status = 'rendering'")
-    .run(Math.max(0, Math.min(1, progress)), new Date().toISOString(), itemId);
+export function updateItemProgress(itemId: string, progress: number, runToken?: string | null, stage = 'rendering') {
+  getDb().prepare(`UPDATE video_job_items SET progress = ?, stage = ?, updated_at = ? WHERE id = ? AND run_token IS ? AND status = 'rendering'
+    AND job_id IN (SELECT id FROM video_jobs WHERE status IN ('pending', 'running'))`)
+    .run(Math.max(0, Math.min(1, progress)), stage, new Date().toISOString(), itemId, runToken ?? null);
 }
 
-export function recordAutomaticRetry(itemId: string, retryNumber: number, maxRetries: number, error: unknown) {
-  const detail = getRenderErrorMessage(error).slice(0, 500);
-  getDb().prepare("UPDATE video_job_items SET progress = 0, error_message = ?, updated_at = ? WHERE id = ? AND status = 'rendering'")
-    .run(`临时渲染异常，正在自动重试 ${retryNumber}/${maxRetries}：${detail}`, new Date().toISOString(), itemId);
+export function recordAutomaticRetry(itemId: string, retryNumber: number, maxRetries: number, error: unknown, runToken?: string | null) {
+  getDb().prepare("UPDATE video_job_items SET progress = 0, stage = 'retrying', error_message = ?, updated_at = ? WHERE id = ? AND run_token IS ? AND status = 'rendering'")
+    .run(`临时渲染异常，正在自动重试 ${retryNumber}/${maxRetries}：${getRenderErrorMessage(error).slice(0, 500)}`, new Date().toISOString(), itemId, runToken ?? null);
 }
 
 export function completeItem(item: ItemRow, outputPath: string) {
-  getDb().prepare("UPDATE video_job_items SET status = 'completed', progress = 1, output_path = ?, error_message = NULL, updated_at = ? WHERE id = ?")
-    .run(outputPath, new Date().toISOString(), item.id);
+  const result = getDb().prepare(`UPDATE video_job_items SET status = 'completed', stage = 'completed', progress = 1, output_path = ?, error_message = NULL, updated_at = ?
+    WHERE id = ? AND run_token IS ? AND status = 'rendering' AND job_id IN (SELECT id FROM video_jobs WHERE status IN ('pending', 'running'))`)
+    .run(outputPath, new Date().toISOString(), item.id, item.run_token ?? null);
   recomputeJob(item.job_id);
+  return result.changes === 1;
 }
 
 export function failItem(item: ItemRow, error: unknown) {
-  getDb().prepare("UPDATE video_job_items SET status = 'failed', progress = 0, error_message = ?, updated_at = ? WHERE id = ?")
-    .run(getFriendlyRenderError(error).slice(0, 1000), new Date().toISOString(), item.id);
+  getDb().prepare(`UPDATE video_job_items SET status = 'failed', stage = 'failed', progress = 0, error_message = ?, updated_at = ?
+    WHERE id = ? AND run_token IS ? AND status = 'rendering' AND job_id IN (SELECT id FROM video_jobs WHERE status IN ('pending', 'running'))`)
+    .run(getFriendlyRenderError(error).slice(0, 1000), new Date().toISOString(), item.id, item.run_token ?? null);
   recomputeJob(item.job_id);
 }
 
@@ -320,6 +310,6 @@ export function getCompletedItem(itemId: string, ownerIp: string) {
 export function getCompletedItems(jobId: string, ownerIp: string) {
   return getDb().prepare(`SELECT item.*, image.original_name FROM video_job_items item
     JOIN video_jobs job ON job.id = item.job_id JOIN images image ON image.id = item.image_id
-    WHERE item.job_id = ? AND item.status = 'completed' AND job.owner_ip = ? ORDER BY item.position, item.created_at, item.id`)
+    WHERE item.job_id = ? AND item.status = 'completed' AND job.owner_ip = ? AND job.status <> 'deleting' ORDER BY item.position, item.created_at, item.id`)
     .all(jobId, ownerIp) as CompletedItemRow[];
 }

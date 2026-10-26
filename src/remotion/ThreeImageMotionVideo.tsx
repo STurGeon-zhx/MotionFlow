@@ -22,10 +22,10 @@ export const ThreeImageMotionVideo: React.FC<ThreeImageMotionVideoProps> = (prop
         />
       )}
       <Img
-        src={imageSrc}
+        src={props.backgroundSrcs?.[motion.imageIndex] ?? imageSrc}
         style={{
           width: '100%', height: '100%', objectFit: 'cover',
-          filter: 'blur(44px) brightness(.58) saturate(1.1)', transform: 'scale(1.18)',
+          filter: props.backgroundSrcs ? undefined : 'blur(44px) brightness(.58) saturate(1.1)', transform: props.backgroundSrcs ? undefined : 'scale(1.18)',
         }}
       />
       <AbsoluteFill style={{transform, willChange: 'transform'}}>

@@ -1,3 +1,4 @@
+import {particleEffects, particlePoint, particleStyles, particleVisualNames} from '@/lib/particle-effects';
 import {describe, expect, it} from 'vitest';
 import {effects} from '@/lib/effects';
 import {allocateEffects, getEffectPool, resolvedRandomParams} from '@/lib/effect-allocation';
@@ -17,6 +18,33 @@ describe('特效预设与分配', () => {
     expect(effects.filter((effect) => effect.type === 'combo')).toHaveLength(111);
     expect(new Set(effects.map((effect) => effect.id)).size).toBe(effects.length);
     effects.forEach((effect) => expect(effectPresetSchema.safeParse(effect).success).toBe(true));
+  });
+
+  it('已下架的20条光粒子不会再出现在可选库或随机池', () => {
+    expect(particleEffects).toHaveLength(20);
+    expect(new Set(particleEffects.map(effect=>effect.visual)).size).toBe(20);
+    const signatures = particleVisualNames.map(visual=>{
+      expect(particleStyles[visual].count).toBeGreaterThanOrEqual(40);
+      expect(effects.some(effect=>effect.visual===visual)).toBe(false);
+      expect(getEffectPool(baseInput).some(effect=>effect.visual===visual)).toBe(false);
+      return JSON.stringify([0,.23,.61].flatMap(phase=>[0,7,23].map(index=>particlePoint(visual,index,phase))));
+    });
+    expect(new Set(signatures).size).toBe(20);
+  });
+
+  it('旧光粒子快照仍可按帧计算，历史重试保持兼容', () => {
+    for(const visual of particleVisualNames) {
+      for(const frame of [0,1,59,60,61,149]) {
+        const points=Array.from({length:particleStyles[visual].count},(_,index)=>particlePoint(visual,index,frame/60));
+        for(const point of points) {
+          expect(Object.values(point).every(Number.isFinite)).toBe(true);
+          expect(point.opacity).toBeGreaterThan(0);
+          expect(point.opacity).toBeLessThanOrEqual(1);
+        }
+        expect(particlePoint(visual,7,frame/60)).toEqual(particlePoint(visual,7,frame/60));
+      }
+      expect(particlePoint(visual,7,0)).toEqual(particlePoint(visual,7,1));
+    }
   });
 
   it('3D 动效使用不同的运动或视觉机制', () => {

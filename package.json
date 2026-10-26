@@ -16,7 +16,10 @@
     "render:sequence-smoke": "tsx scripts/render-sequence-smoke.ts",
     "render:benchmark": "tsx scripts/render-throughput-benchmark.ts",
     "package:portable": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-portable.ps1",
-    "package:desktop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop.ps1"
+    "package:desktop": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-desktop.ps1",
+    "desktop:review": "node scripts/start-desktop-review.mjs",
+    "package:installer": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build-installer.ps1",
+    "render:review-benchmark": "tsx scripts/benchmark-local-review.ts"
   },
   "dependencies": {
     "@remotion/bundler": "4.0.518",

@@ -11,6 +11,7 @@ export function getDb() {
   ensureStorage();
   const db = new Database(path.join(dataRoot, 'motion-studio.sqlite'));
   db.pragma('journal_mode = WAL');
+  db.pragma('busy_timeout = 5000');
   db.pragma('foreign_keys = ON');
   db.exec(`
     CREATE TABLE IF NOT EXISTS images (
@@ -98,6 +99,9 @@ export function getDb() {
   }
   if (!itemColumns.some((column) => column.name === 'position')) {
     db.exec('ALTER TABLE video_job_items ADD COLUMN position INTEGER NOT NULL DEFAULT 0');
+  }
+  for (const [name, definition] of Object.entries({run_token: 'TEXT', heartbeat_at: 'TEXT', stage: "TEXT NOT NULL DEFAULT 'waiting'"})) {
+    if (!itemColumns.some((column) => column.name === name)) db.exec(`ALTER TABLE video_job_items ADD COLUMN ${name} ${definition}`);
   }
   const workspaceColumns = db.prepare('PRAGMA table_info(workspace_images)').all() as Array<{name: string}>;
   if (!workspaceColumns.some((column) => column.name === 'workspace_type')) {

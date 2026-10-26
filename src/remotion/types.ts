@@ -9,6 +9,7 @@ export type RandomizedParams = {
 
 export type ImageIntroVideoProps = {
   imageSrc: string;
+  backgroundSrc?: string;
   backgroundMusicSrc: string | null;
   effect: EffectPreset;
   width: number;
@@ -21,6 +22,7 @@ export type ImageIntroVideoProps = {
 
 export type ThreeImageMotionVideoProps = {
   imageSrcs: [string, string, string];
+  backgroundSrcs?: [string, string, string];
   backgroundMusicSrc: string | null;
   width: number;
   height: number;
@@ -30,14 +32,14 @@ export type ThreeImageMotionVideoProps = {
 };
 
 export const defaultVideoProps: ImageIntroVideoProps = {
-  imageSrc: '/preview-placeholder.png',
+  imageSrc: '/preview-sample.svg',
   backgroundMusicSrc: null,
   effect: {
     id: 'preview', name: '中心放大进入', type: 'basic', category: 'basic', description: '', durationFrames: 24,
     atoms: [{type: 'scale', from: .75, to: 1, startFrame: 0, endFrame: 24, easing: 'easeOutCubic'}], enabled: true,
   },
-  width: 1080,
-  height: 1920,
+  width: 1280,
+  height: 720,
   introFrames: 36,
   intensity: 'medium',
   enableBreathing: true,
@@ -45,10 +47,10 @@ export const defaultVideoProps: ImageIntroVideoProps = {
 };
 
 export const defaultThreeImageMotionProps: ThreeImageMotionVideoProps = {
-  imageSrcs: ['/preview-placeholder.png', '/preview-placeholder.png', '/preview-placeholder.png'],
+  imageSrcs: ['/preview-sample.svg', '/preview-sample.svg', '/preview-sample.svg'],
   backgroundMusicSrc: null,
-  width: 1080,
-  height: 1920,
+  width: 1280,
+  height: 720,
   motionSpeed: 0.8,
   motionAmplitude: 0.025,
   motionSeed: 1,

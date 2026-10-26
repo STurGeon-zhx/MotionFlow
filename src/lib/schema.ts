@@ -1,4 +1,5 @@
 import {z} from 'zod';
+import {particleVisualNames} from './particle-effects';
 import {MAX_SEQUENCE_IMAGES, MAX_WORKSPACE_IMAGES} from './limits';
 
 export const ratioSchema = z.enum(['source', '9:16', '1:1', '16:9']);
@@ -39,6 +40,7 @@ export const atomTypeSchema = z.enum([
 ]);
 
 export const creativeVisualSchema = z.enum([
+  ...particleVisualNames,
   'diamond',
   'clockWipe',
   'venetian',

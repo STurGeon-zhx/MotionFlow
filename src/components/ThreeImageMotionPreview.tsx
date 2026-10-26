@@ -1,24 +1,27 @@
 'use client';
 
-import type {CSSProperties} from 'react';
-import {Player} from '@remotion/player';
+import {useEffect, useRef, type CSSProperties} from 'react';
+import {Player, type PlayerRef} from '@remotion/player';
 import {ThreeImageMotionVideo} from '@/remotion/ThreeImageMotionVideo';
 import {defaultThreeImageMotionProps} from '@/remotion/types';
 import type {ImageRecord} from '@/lib/schema';
 import {getSourceDimensions} from '@/lib/video-config';
 
-export function ThreeImageMotionPreview({images, motionSpeed, motionAmplitude}: {
+export function ThreeImageMotionPreview({images, motionSpeed, motionAmplitude, rendering = false}: {
+  rendering?: boolean;
   images: ImageRecord[];
   motionSpeed: number;
   motionAmplitude: number;
 }) {
   const first = images[0];
+  const player = useRef<PlayerRef>(null);
+  useEffect(()=>{if(rendering)player.current?.pause();},[rendering]);
   const dimensions = getSourceDimensions(first?.width ?? 1280, first?.height ?? 720, '720p');
   const orientation = dimensions.width > dimensions.height ? 'landscape' : dimensions.width === dimensions.height ? 'square' : 'portrait';
   const ratio = dimensions.width / dimensions.height;
   const shellStyle: CSSProperties = {
     aspectRatio: `${dimensions.width} / ${dimensions.height}`,
-    maxWidth: orientation === 'landscape' ? '100%' : `${Math.round(400 * ratio)}px`,
+    maxWidth: `calc(var(--preview-height, 400px) * ${ratio})`,
   };
   const sources = [0, 1, 2].map((index) => images[index]?.previewUrl ?? first?.previewUrl ?? defaultThreeImageMotionProps.imageSrcs[index]) as [string, string, string];
   const motionSeed = images.reduce((seed, image) => {
@@ -31,6 +34,7 @@ export function ThreeImageMotionPreview({images, motionSpeed, motionAmplitude}: 
       <div className="preview-stage sequence-preview-stage">
         <div className={`preview-shell preview-${orientation}`} style={shellStyle}>
           <Player
+          ref={player}
             key={`${sources.join('|')}-${motionSpeed}-${motionAmplitude}-${motionSeed}`}
             component={ThreeImageMotionVideo}
             inputProps={{...defaultThreeImageMotionProps, imageSrcs: sources, ...dimensions, motionSpeed, motionAmplitude, motionSeed}}
@@ -40,7 +44,7 @@ export function ThreeImageMotionPreview({images, motionSpeed, motionAmplitude}: 
             compositionHeight={dimensions.height}
             controls
             loop
-            autoPlay
+            autoPlay={!rendering}
             initiallyMuted
             style={{width: '100%', height: '100%'}}
             acknowledgeRemotionLicense

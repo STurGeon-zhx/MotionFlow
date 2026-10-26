@@ -13,7 +13,9 @@ export async function GET(request: Request, {params}: Context) {
   const {id} = await params;
   const ownerId = getClientOwnerId(request);
   if (!getJob(id, ownerId)) return errorResponse(new Error('任务不存在'), 404);
-  const items = getCompletedItems(id, ownerId).filter((item) => item.output_path);
+  const selection = new URL(request.url).searchParams.get('items');
+  const selectedIds = selection ? new Set(selection.split(',')) : null;
+  const items = getCompletedItems(id, ownerId).filter((item) => item.output_path && (!selectedIds || selectedIds.has(item.id)));
   if (items.length === 0) return errorResponse(new Error('当前没有可下载的视频'), 409);
   const pass = new PassThrough();
   const archive = new ZipArchive({zlib: {level: 6}});

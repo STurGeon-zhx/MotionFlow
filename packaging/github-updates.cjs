@@ -29,6 +29,7 @@ function getReleaseUpdate(release, currentVersion, repository) {
     status: compareVersions(version,currentVersion)>0?'available':'up_to_date',
     currentVersion,latestVersion:version,name:String(release.name||tag),notes:String(release.body||'').slice(0,30000),
     publishedAt:release.published_at||null,
+    codeManifestUrl: assets.find(item => item.name === 'MotionFlow-Code-Update.json' && String(item.browser_download_url||'').toLowerCase().startsWith(prefix))?.browser_download_url || null,
     asset:asset?{name:asset.name,url:asset.browser_download_url,size:Number(asset.size)||0,digest: /^sha256:[a-f\d]{64}$/i.test(asset.digest||'')?asset.digest:null}:null,
   };
 }

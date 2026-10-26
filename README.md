@@ -100,3 +100,7 @@ npm run render:benchmark
 运行 `npx tsx scripts/render-effects-audit.ts` 可检查全部效果在横竖版、不同强度和入场时长下的首帧，并生成 20 条新效果的真实视频及抽帧报告；输出位于 `.data/effect-audit-1022`。
 
 桌面版 v1.1.0 顶部提供“检查更新”。默认连接公开的 `STurGeon-zhx/MotionFlow` GitHub 仓库，即可读取最新正式 Release 并下载新版 ZIP，无需登录或填写地址。发布和打包约定见 [GitHub 更新说明](packaging/GITHUB-UPDATES.md)。
+
+## 本地评审版
+
+当前源码的桌面改造、任务控制、渲染提速和代码更新测试说明见 [本地评审指南](LOCAL-REVIEW.md)。双击根目录的“启动本地评审.vbs”打开独立软件窗口。本轮不制作或发布分发包。

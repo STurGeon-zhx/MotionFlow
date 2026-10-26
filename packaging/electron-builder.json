@@ -1,0 +1,42 @@
+{
+  "appId": "com.motionflow.desktop",
+  "productName": "MotionFlow",
+  "directories": {
+    "output": ".release/installer"
+  },
+  "files": [
+    "packaging/electron-main.cjs",
+    "packaging/electron-preload.cjs",
+    "packaging/github-updates.cjs",
+    "packaging/code-updates.cjs",
+    "packaging/update-config.json",
+    "packaging/update-public-key.pem"
+  ],
+  "extraMetadata": {
+    "main": "packaging/electron-main.cjs"
+  },
+  "extraFiles": [
+    {
+      "from": ".data/installer-runtime",
+      "to": "_internal"
+    }
+  ],
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": [
+          "x64"
+        ]
+      }
+    ]
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowElevation": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "deleteAppDataOnUninstall": false
+  }
+}
