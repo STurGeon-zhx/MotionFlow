@@ -30,7 +30,7 @@ const packageRoot = review
 const internalRoot = review ? projectRoot : path.join(packageRoot, "_internal");
 const applicationRoot = review
   ? path.join(projectRoot, ".data", "review", "desktop")
-  : path.join(app.getPath("appData"), "MotionFlow");
+  : process.env.MOTION_APP_DATA_DIR || path.join(app.getPath("appData"), "MotionFlow");
 const dataDirectory = path.join(applicationRoot, "data");
 const updateRoot = path.join(applicationRoot, "updates");
 const runtimeId = "motionflow-win32-x64-node-runtime-1";

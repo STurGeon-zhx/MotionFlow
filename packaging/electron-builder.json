@@ -2,15 +2,13 @@
   "appId": "com.motionflow.desktop",
   "productName": "MotionFlow",
   "directories": {
-    "output": ".release/installer"
+    "output": ".release/installer",
+    "app": ".data/installer-shell"
   },
   "files": [
-    "packaging/electron-main.cjs",
-    "packaging/electron-preload.cjs",
-    "packaging/github-updates.cjs",
-    "packaging/code-updates.cjs",
-    "packaging/update-config.json",
-    "packaging/update-public-key.pem"
+    "package.json",
+    "packaging/**/*",
+    "!**/node_modules/**"
   ],
   "extraMetadata": {
     "main": "packaging/electron-main.cjs"
@@ -38,5 +36,11 @@
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "deleteAppDataOnUninstall": false
-  }
+  },
+  "npmRebuild": false,
+  "nodeGypRebuild": false,
+  "electronVersion": "44.3.0",
+  "electronDist": "node_modules/electron/dist",
+  "artifactName": "MotionFlow-Setup-${version}-Windows-${arch}.${ext}",
+  "afterPack": "packaging/after-pack.cjs"
 }

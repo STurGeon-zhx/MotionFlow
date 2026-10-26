@@ -82,6 +82,17 @@ function verifyManifest(envelope, publicKey, runtimeId) {
     total += file.size;
   }
   if (total > 256 * 1024 * 1024) throw Error("代码更新大小超过限制");
+  if (manifest.bundle) {
+    const bundle = manifest.bundle;
+    if (!Number.isSafeInteger(bundle.size) || bundle.size !== total ||
+        !/^[a-f\d]{64}$/i.test(bundle.sha256) || typeof bundle.url !== 'string')
+      throw Error("代码更新资源信息无效");
+    let offset = 0;
+    for (const file of manifest.files) {
+      if (file.offset !== offset) throw Error("代码更新文件偏移无效");
+      offset += file.size;
+    }
+  }
   for (const required of [
     "server.ts",
     "package.json",
@@ -166,7 +177,34 @@ async function stageCodeUpdate(envelope, root, options) {
   await fs.promises.mkdir(staging, { recursive: true });
   let received = 0;
   try {
+    let bundleBytes = null;
+    if (manifest.bundle) {
+      const bundle = manifest.bundle;
+      const url = checkedUrl(bundle.url, options.baseUrl, options.allowLocal);
+      const response = await options.fetchImpl(url, {signal: AbortSignal.timeout(120000)});
+      if (!response.ok || !response.body) throw Error("代码资源下载失败");
+      const chunks = [];
+      let size = 0;
+      for await (const chunk of response.body) {
+        size += chunk.length;
+        if (size > bundle.size) throw Error("代码资源大小不符");
+        chunks.push(Buffer.from(chunk));
+        options.onProgress?.({stage:"downloading", received:size, total:manifest.totalSize});
+      }
+      bundleBytes = Buffer.concat(chunks);
+      if (size !== bundle.size || sha(bundleBytes) !== bundle.sha256.toLowerCase())
+        throw Error("代码资源校验失败");
+    }
     for (const file of manifest.files) {
+      if (bundleBytes) {
+        const bytes = bundleBytes.subarray(file.offset, file.offset + file.size);
+        if (sha(bytes) !== file.sha256.toLowerCase()) throw Error("代码文件校验失败");
+        const output = path.join(staging, ...file.path.split("/"));
+        await fs.promises.mkdir(path.dirname(output), {recursive:true});
+        await fs.promises.writeFile(output, bytes, {flag:"wx"});
+        received += file.size;
+        continue;
+      }
       const url = checkedUrl(file.url, options.baseUrl, options.allowLocal);
       const response = await options.fetchImpl(url, {
         signal: AbortSignal.timeout(120000),

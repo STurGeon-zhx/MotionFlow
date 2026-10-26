@@ -24,7 +24,8 @@ function getReleaseUpdate(release, currentVersion, repository) {
   const version=tag.replace(/^v/,'');
   const prefix=`https://github.com/${repository}/releases/download/`.toLowerCase();
   const assets=Array.isArray(release.assets)?release.assets:[];
-  const asset=assets.find(item => /^MotionFlow.*Desktop.*Windows.*x64.*\.zip$/i.test(item.name||'') && String(item.browser_download_url||'').toLowerCase().startsWith(prefix));
+  const trusted = assets.filter(item => String(item.browser_download_url||'').toLowerCase().startsWith(prefix));
+  const asset=trusted.find(item => /^MotionFlow-Setup-.*Windows-x64\.exe$/i.test(item.name||'')) || trusted.find(item => /^MotionFlow.*Desktop.*Windows.*x64.*\.zip$/i.test(item.name||''));
   return {
     status: compareVersions(version,currentVersion)>0?'available':'up_to_date',
     currentVersion,latestVersion:version,name:String(release.name||tag),notes:String(release.body||'').slice(0,30000),

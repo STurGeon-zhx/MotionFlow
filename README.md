@@ -104,3 +104,8 @@ npm run render:benchmark
 ## 本地评审版
 
 当前源码的桌面改造、任务控制、渲染提速和代码更新测试说明见 [本地评审指南](LOCAL-REVIEW.md)。双击根目录的“启动本地评审.vbs”打开独立软件窗口。本轮不制作或发布分发包。
+## Windows 安装版
+
+v1.2.0 起提供独立桌面软件安装包与软件内签名代码更新。下载、数据目录、校验和构建流程见 [安装版说明](INSTALLATION.md)。
+
+正式安装程序发布在 [GitHub Releases](https://github.com/STurGeon-zhx/MotionFlow/releases/latest)，不用安装 Node.js 或浏览器。
