@@ -31,3 +31,14 @@
 7. 提交并推送对应源码，然后发布同版本 GitHub Release，上传上述四个文件。不要上传 `.data`、私钥或本机历史。
 
 本机加密私钥：`.data/release-signing/update-private.dpapi`，只能由生成它的 Windows 账户解密。请按发布凭据妥善备份；更换电脑或账户前先安排安全迁移。
+## 仅发布日常代码更新
+
+如果只修改页面或业务代码、没有改变 Electron/Node/Chromium/原生依赖及桌面壳，执行版本升级和检查后运行：
+
+```powershell
+npm run build
+node --import tsx scripts/prepare-review-assets.ts
+node scripts/prepare-code-release.cjs --code-only
+```
+
+这会直接从当前构建生成 `.release/v版本号` 下的签名清单、代码资源和校验和，不重新制作安装包。发布同版本 GitHub Release 并上传这三个文件即可；已有兼容安装版可在软件内检查、下载并应用更新。

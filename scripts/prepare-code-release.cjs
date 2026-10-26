@@ -7,7 +7,9 @@ const updates=require('../packaging/code-updates.cjs');
 const root=path.resolve(__dirname,'..');
 const hash=bytes=>crypto.createHash('sha256').update(bytes).digest('hex');
 async function main(){
- const source=path.join(root,'.data/installer-runtime');
+ const codeOnly=process.argv.includes('--code-only');
+ const source=codeOnly?root:path.join(root,'.data/installer-runtime');
+ const resolveSource=relative=>codeOnly&&relative.startsWith('remotion-bundle')?path.join(root,'.data/review',relative):path.join(source,...relative.split('/'));
  const pkg=JSON.parse(await fs.readFile(path.join(source,'package.json'),'utf8'));
  if(!/^\d+\.\d+\.\d+$/.test(pkg.version))throw Error('无效发布版本');
  const version=pkg.version;
@@ -16,11 +18,11 @@ async function main(){
  const files=[];const buffers=[];let offset=0;
  async function add(relative){
   updates.safeRelative(relative);
-  const bytes=await fs.readFile(path.join(source,...relative.split('/')));
+  const bytes=await fs.readFile(resolveSource(relative));
   files.push({path:relative,size:bytes.length,sha256:hash(bytes),offset});buffers.push(bytes);offset+=bytes.length;
  }
  async function walk(relative){
-  const entries=await fs.readdir(path.join(source,relative),{withFileTypes:true});
+  const entries=await fs.readdir(resolveSource(relative),{withFileTypes:true});
   entries.sort((a,b)=>a.name<b.name?-1:1);
   for(const entry of entries){
    if(['node_modules','cache','dev','types','diagnostics','trace','trace-build'].includes(entry.name)||entry.isSymbolicLink())continue;
@@ -43,11 +45,11 @@ async function main(){
  await updates.verifyStaged(verifyRoot,version,runtimeId,publicKey);
  if(downloads!==1)throw Error('代码更新不应逐文件重复下载');
  const installer=`MotionFlow-Setup-${version}-Windows-x64.exe`;
- await fs.copyFile(path.join(root,'.release/installer',installer),path.join(release,installer));
+ if(!codeOnly)await fs.copyFile(path.join(root,'.release/installer',installer),path.join(release,installer));
  const sums=[];
- for(const file of [installer,bundleName,'MotionFlow-Code-Update.json'])sums.push(hash(await fs.readFile(path.join(release,file)))+'  '+file);
+ for(const file of [...(codeOnly?[]:[installer]),bundleName,'MotionFlow-Code-Update.json'])sums.push(hash(await fs.readFile(path.join(release,file)))+'  '+file);
  await fs.writeFile(path.join(release,'SHA256SUMS.txt'),sums.join('\n')+'\n');
  await fs.writeFile(path.join(root,'.data/release-verification/report.json'),JSON.stringify({passed:true,version,codeFiles:files.length,bundleBytes:bundle.length,downloads,verifiedAt:new Date().toISOString()},null,2));
- console.log(JSON.stringify({release,version,codeFiles:files.length,bundleBytes:bundle.length,verified:true}));
+ console.log(JSON.stringify({release,version,codeOnly,codeFiles:files.length,bundleBytes:bundle.length,verified:true}));
 }
 main().catch(error=>{console.error(error);process.exitCode=1;});

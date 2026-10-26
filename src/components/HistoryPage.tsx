@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import {
   AlertCircle,
+  ArrowLeft,
   Clock3,
   Film,
   LoaderCircle,
@@ -55,10 +56,16 @@ export function HistoryPage() {
           <h1>历史任务</h1>
           <p>仅显示当前设备的任务，排队或渲染中也可以暂停、删除。</p>
         </div>
-        <Link className="primary-action compact" href="/?new=1">
-          <Sparkles size={17} />
-          创建新任务
-        </Link>
+        <div className="history-hero-actions">
+          <Link className="ghost-action history-home-link" href="/">
+            <ArrowLeft size={17} />
+            返回主页
+          </Link>
+          <Link className="primary-action compact" href="/?new=1">
+            <Sparkles size={17} />
+            创建新任务
+          </Link>
+        </div>
       </div>
       {error && (
         <div className="notice error">

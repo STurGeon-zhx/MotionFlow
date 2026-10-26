@@ -1016,3 +1016,9 @@ button:disabled {
   :where(dialog) { transform: none; }
   :where(dialog)::backdrop { transition: none !important; }
 }
+.history-hero-actions { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 10px; }
+.history-hero-actions > a { width: auto; min-width: 120px; height: 44px; margin: 0; padding: 0 18px; }
+@media (max-width: 720px) {
+  .history-hero-actions { justify-content: flex-start; margin-top: 16px; }
+  .history-hero .history-hero-actions > a { margin-top: 0; }
+}
