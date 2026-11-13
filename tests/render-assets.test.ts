@@ -19,6 +19,7 @@ describe("仅本机可用的渲染素材缓存", () => {
     expect(new URL(url).hostname).toBe("127.0.0.1");
     const response = await fetch(url, { headers: { Range: "bytes=2-5" } });
     expect(response.status).toBe(206);
+    expect(response.headers.get("cache-control")).toContain("no-store");
     expect(await response.text()).toBe("3456");
     expect((await fetch(new URL("/unknown", url))).status).toBe(404);
     grant.release();

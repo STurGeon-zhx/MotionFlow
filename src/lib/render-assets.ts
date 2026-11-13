@@ -35,7 +35,8 @@ function startAssetServer() {
           "Content-Length": end - start + 1,
           "Accept-Ranges": "bytes",
           "Access-Control-Allow-Origin": "*",
-          "Cache-Control": "private, max-age=3600",
+          // 授权随子任务结束即撤销，避免长期复用浏览器时积累磁盘缓存。
+          "Cache-Control": "no-store",
           ...(range
             ? { "Content-Range": `bytes ${start}-${end}/${size}` }
             : {}),

@@ -1,4 +1,7 @@
-import {describe, expect, it, vi} from 'vitest';
+import {EventEmitter} from 'node:events';
+import type {ChildProcess} from 'node:child_process';
+import * as workerRuntime from '@/lib/worker-runtime';
+import {afterEach, describe, expect, it, vi} from 'vitest';
 import {getAttemptConcurrency, getRenderRuntimeConfig, getRenderTimeoutMs, runWithRenderRetries, runWorkerSlots} from '@/lib/worker-runtime';
 
 describe('Worker 并行运行配置', () => {
@@ -69,5 +72,67 @@ describe('Worker 并行运行配置', () => {
       idleWait: async () => {},
     });
     expect(claim).not.toHaveBeenCalled();
+  });
+  it('一个槽位领取或处理异常不会停止其它槽位和后续调度', async () => {
+    const queue=[1,2,3];const handled:number[]=[];let first=true;const errors:unknown[]=[];
+    await expect(runWorkerSlots({
+      slots:2,
+      shouldStop:()=>handled.length===2,
+      claim:()=>{if(first){first=false;throw Error('SQLITE_BUSY');}return queue.shift()??null;},
+      handle:async item=>{if(item===1)throw Error('临时文件被占用');handled.push(item);},
+      idleWait:async()=>{await new Promise(resolve=>setTimeout(resolve,1));},
+      onError:(error:unknown)=>{errors.push(error);},
+    })).resolves.toBeUndefined();
+    expect(handled.sort()).toEqual([2,3]);
+    expect(errors).toHaveLength(2);
+  });
+
+});
+
+function runnerProcess() {
+  return Object.assign(new EventEmitter(),{pid:12345,exitCode:null,connected:true}) as unknown as ChildProcess;
+}
+afterEach(()=>vi.useRealTimers());
+describe('Worker后台故障恢复',()=>{
+  it('后台退出后自动重建，停止软件后不再启动后台',async()=>{
+    vi.useFakeTimers();const workers:ChildProcess[]=[];const stopped:ChildProcess[]=[];
+    const supervisor=workerRuntime.superviseWorkerProcess({
+      spawnWorker:()=>{const worker=runnerProcess();workers.push(worker);return worker;},
+      stopWorker:async worker=>{stopped.push(worker);},
+      onError:()=>{},
+    });
+    expect(workers).toHaveLength(1);
+    workers[0].emit('exit',1);
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(workers).toHaveLength(2);
+    await supervisor.stop();
+    workers[1].emit('exit',1);
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(workers).toHaveLength(2);
+    expect(stopped).toContain(workers[1]);
+  });
+  it('心跳卡死时先释放旧进程再重建，不能重复启动',async()=>{
+    vi.useFakeTimers();const workers:ChildProcess[]=[];let release!:()=>void;
+    const supervisor=workerRuntime.superviseWorkerProcess({
+      spawnWorker:()=>{const worker=runnerProcess();workers.push(worker);return worker;},
+      stopWorker:()=>new Promise<void>(resolve=>{release=resolve;}),onError:()=>{},
+    });
+    await vi.advanceTimersByTimeAsync(30000);
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(workers).toHaveLength(1);
+    release();await vi.advanceTimersByTimeAsync(2000);
+    expect(workers).toHaveLength(2);
+    const stopped=supervisor.stop();await Promise.resolve();release();await stopped;
+  });
+  it('持续收到有效心跳时不误杀长时间的正常渲染',async()=>{
+    vi.useFakeTimers();const workers:ChildProcess[]=[];
+    const supervisor=workerRuntime.superviseWorkerProcess({
+      spawnWorker:()=>{const worker=runnerProcess();workers.push(worker);return worker;},
+      stopWorker:async()=>{},onError:()=>{},
+    });
+    for(let i=0;i<20;i++){
+      await vi.advanceTimersByTimeAsync(10000);workers[0].emit('message',{type:'worker-heartbeat'});
+    }
+    expect(workers).toHaveLength(1);await supervisor.stop();
   });
 });

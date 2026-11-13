@@ -30,7 +30,7 @@ export function pauseVideoJob(jobId: string, ownerId: string) {
     return db
       .prepare("SELECT status FROM video_jobs WHERE id = ?")
       .get(jobId) as { status: string };
-  })();
+  }).immediate();
 }
 
 export function resumeVideoJob(jobId: string, ownerId: string) {

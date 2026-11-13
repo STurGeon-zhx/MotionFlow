@@ -1,11 +1,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import {beforeEach, describe, expect, it} from 'vitest';
+import Database from 'better-sqlite3';
+import {beforeEach, describe, expect, it, vi} from 'vitest';
 import {getDb} from '@/lib/db';
 import {claimNextItem, createVideoJob, deleteVideoJob, getCompletedItem, getJob, listJobs, recomputeJob, retryFailedItem, retryFailedItems} from '@/lib/jobs';
 import {pauseVideoJob, resumeVideoJob, releaseInterruptedItem, cleanupDeletedJobs, isItemExecutionActive} from '@/lib/job-control';
 import {completeItem, updateItemProgress, failItem} from '@/lib/jobs';
-import {ensureStorage, outputsDir, uploadsDir} from '@/lib/storage';
+import {dataRoot, ensureStorage, outputsDir, uploadsDir} from '@/lib/storage';
 import {DELETE as clearWorkspaceImages, GET as listWorkspaceImages, PATCH as reorderWorkspaceImages} from '@/app/api/images/route';
 import {DELETE as removeWorkspaceImage} from '@/app/api/images/[id]/route';
 import {createJobSchema} from '@/lib/schema';
@@ -284,6 +285,44 @@ describe('任务服务', () => {
     getDb().prepare("UPDATE video_job_items SET heartbeat_at='2000-01-01T00:00:00.000Z' WHERE id=?").run(item.id);
     expect(pauseVideoJob(created.jobId,ownerA)?.status).toBe('paused');
     resumeVideoJob(created.jobId,ownerA);expect(claimNextItem()?.id).toBe(item.id);
+  });
+
+  it('损坏的历史任务不能堵住后续任务或让整个Worker退出', () => {
+    const input={imageIds:['img_test_1'],effectMode:'basic_only',ratio:'source',countPerImage:1,allowDuplicate:false,introDurationSec:1.2,intensity:'medium',enableBreathing:true,resolution:'720p'};
+    const broken=createVideoJob(input,ownerA);
+    const next=createVideoJob({...input,imageIds:['img_test_2']},ownerA);
+    getDb().prepare("UPDATE video_jobs SET request_json = '{broken' WHERE id = ?").run(broken.jobId);
+    getDb().prepare("UPDATE video_job_items SET created_at = '2000-01-01T00:00:00.000Z' WHERE job_id = ?").run(broken.jobId);
+    const claimed=claimNextItem();
+    expect(claimed?.job_id).toBe(next.jobId);
+    expect(getJob(broken.jobId,ownerA)).toMatchObject({status:'failed',failedCount:1});
+  });
+
+  it.each(['领取','暂停'])('页面并发写入时，%s任务不发生WAL快照升级失败', action => {
+    const created=createVideoJob({imageIds:['img_test_1'],effectMode:'basic_only',ratio:'source',countPerImage:1,allowDuplicate:false,introDurationSec:1.2,intensity:'medium',enableBreathing:true,resolution:'720p'},ownerA);
+    const db=getDb();
+    const writer=new Database(path.join(dataRoot,'motion-studio.sqlite'));
+    writer.pragma('busy_timeout = 0');
+    const prepare=db.prepare.bind(db);
+    const hook=vi.spyOn(db,'prepare').mockImplementation(((sql:string)=>{
+      const statement=prepare(sql);
+      const target=action==='领取'?sql.startsWith('SELECT item.* FROM video_job_items item JOIN video_jobs'):sql==='SELECT status FROM video_jobs WHERE id = ? AND owner_ip = ?';
+      if(target){
+        const read=statement.get.bind(statement);
+        statement.get=(...parameters:unknown[])=>{
+          const row=read(...parameters);
+          // 确定性复现：读完快照、准备写入前，另一个真实连接提交页面写操作。
+          try{writer.prepare("INSERT OR REPLACE INTO app_meta (key,value) VALUES ('contention-test','write')").run();}
+          catch(error){if(!(error instanceof Error&&'code' in error&&error.code==='SQLITE_BUSY'))throw error;}
+          return row;
+        };
+      }
+      return statement;
+    }) as typeof db.prepare);
+    try{
+      if(action==='领取')expect(claimNextItem()?.job_id).toBe(created.jobId);
+      else expect(pauseVideoJob(created.jobId,ownerA)?.status).toBe('paused');
+    }finally{hook.mockRestore();writer.close();}
   });
 
 });

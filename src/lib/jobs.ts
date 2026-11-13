@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import {ZodError} from 'zod';
 import {getDb} from './db';
 import {allocateEffects, getEffectPool, resolvedRandomParams} from './effect-allocation';
 import {
@@ -150,16 +151,19 @@ function serializeItem(row: ItemRow & {original_name: string}, toolType: ToolTyp
 }
 
 function serializeJob(row: JobRow, withItems = false) {
-  const rawInput = JSON.parse(row.request_json) as Record<string, unknown>;
-  const toolType: ToolType = row.tool_type === 'three_image_motion' || rawInput.toolType === 'three_image_motion'
-    ? 'three_image_motion'
-    : 'single_intro';
-  const input = parseCreateJobInput({...rawInput, toolType});
+  let input: CreateJobInput | null = null;
+  let toolType: ToolType = row.tool_type === 'three_image_motion' ? 'three_image_motion' : 'single_intro';
+  try {
+    const rawInput = JSON.parse(row.request_json) as Record<string, unknown>;
+    if (rawInput?.toolType === 'three_image_motion') toolType = 'three_image_motion';
+    input = parseCreateJobInput({...rawInput, toolType});
+  } catch { /* 损坏记录仍可查看错误和删除。 */ }
+  const imageCount = input?.imageIds.length ?? row.total_count * (toolType === 'three_image_motion' ? 3 : 1);
   const base = {
     id: row.id, toolType, status: row.status, totalCount: row.total_count,
-    completedCount: row.completed_count, failedCount: row.failed_count, imageCount: input.imageIds.length,
-    groupCount: toolType === 'three_image_motion' ? input.imageIds.length / 3 : input.imageIds.length,
-    durationSec: input.durationSec, ratio: input.ratio, resolution: input.resolution,
+    completedCount: row.completed_count, failedCount: row.failed_count, imageCount,
+    groupCount: toolType === 'three_image_motion' ? imageCount / 3 : imageCount,
+    durationSec: input?.durationSec ?? (toolType === 'three_image_motion' ? 15 : 5), ratio: input?.ratio ?? 'source', resolution: input?.resolution ?? '720p',
     createdAt: row.created_at, updatedAt: row.updated_at,
     thumbnailUrl: (() => { const image = getDb().prepare('SELECT image_id FROM video_job_items WHERE job_id = ? ORDER BY position LIMIT 1').get(row.id) as {image_id: string} | undefined; return image ? `/api/images/${image.image_id}` : null; })(),
     workerOnline: Date.now() - Number((getDb().prepare("SELECT value FROM app_meta WHERE key = 'worker_heartbeat'").get() as {value: string} | undefined)?.value ?? 0) < 15_000,
@@ -242,6 +246,15 @@ export function recoverInterruptedItems() {
 }
 
 export function claimNextItem(options: {allowThreeImageMotion?: boolean} = {}): ClaimedRenderItem | null {
+  // 每次事务隔离一条记录；坏记录标记失败后继续领取，避免阻塞整个队列。
+  for (;;) {
+    const item = claimNextItemAttempt(options);
+    if (item !== undefined) return item;
+  }
+}
+
+class InvalidRenderItem extends Error {}
+function claimNextItemAttempt(options: {allowThreeImageMotion?: boolean}): ClaimedRenderItem | null | undefined {
   const db = getDb();
   return db.transaction(() => {
     const row = options.allowThreeImageMotion === false
@@ -255,24 +268,31 @@ export function claimNextItem(options: {allowThreeImageMotion?: boolean} = {}): 
     const changed = db.prepare("UPDATE video_job_items SET status = 'rendering', progress = 0, stage = 'preparing', run_token = ?, heartbeat_at = ?, updated_at = ? WHERE id = ? AND status = 'waiting'")
       .run(runToken, now, now, row.id);
     if (changed.changes !== 1) return null;
-    const job = db.prepare('SELECT tool_type, request_json FROM video_jobs WHERE id = ?').get(row.job_id) as {tool_type: ToolType | null; request_json: string};
-    const rawInput = JSON.parse(job.request_json) as Record<string, unknown>;
-    const toolType: ToolType = job.tool_type === 'three_image_motion' || rawInput.toolType === 'three_image_motion' ? 'three_image_motion' : 'single_intro';
-    const request = parseCreateJobInput({...rawInput, toolType});
-    const imageIds = getItemImageIds(row, toolType);
-    const placeholders = imageIds.map(() => '?').join(',');
-    const unorderedImages = db.prepare(`SELECT * FROM images WHERE id IN (${placeholders})`).all(...imageIds) as ImageRow[];
-    const imageMap = new Map(unorderedImages.map((image) => [image.id, image]));
-    const images = imageIds.map((id) => imageMap.get(id)).filter((image): image is ImageRow => Boolean(image));
-    if (images.length !== imageIds.length) throw new Error('渲染任务的图片不存在');
-    recomputeJob(row.job_id);
-    const common = {...row, run_token: runToken, heartbeat_at: now, status: 'rendering', image: images[0], params: JSON.parse(row.params_json)};
-    if (toolType === 'three_image_motion') {
-      if (images.length !== 3) throw new Error('三图微动任务必须包含三张图片');
-      return {...common, toolType, images: images as [ImageRow, ImageRow, ImageRow], request: request as ThreeImageMotionJobInput, effect: null};
+    try {
+      const job = db.prepare('SELECT tool_type, request_json FROM video_jobs WHERE id = ?').get(row.job_id) as {tool_type: ToolType | null; request_json: string};
+      const rawInput = JSON.parse(job.request_json) as Record<string, unknown>;
+      if (!rawInput || typeof rawInput !== 'object') throw new InvalidRenderItem('任务参数缺失');
+      const toolType: ToolType = job.tool_type === 'three_image_motion' || rawInput.toolType === 'three_image_motion' ? 'three_image_motion' : 'single_intro';
+      const request = parseCreateJobInput({...rawInput, toolType});
+      const imageIds = getItemImageIds(row, toolType);
+      const placeholders = imageIds.map(() => '?').join(',');
+      const unorderedImages = db.prepare(`SELECT * FROM images WHERE id IN (${placeholders})`).all(...imageIds) as ImageRow[];
+      const imageMap = new Map(unorderedImages.map((image) => [image.id, image]));
+      const images = imageIds.map((id) => imageMap.get(id)).filter((image): image is ImageRow => Boolean(image));
+      if (images.length !== imageIds.length) throw new InvalidRenderItem('渲染任务的图片不存在');
+      recomputeJob(row.job_id);
+      const common = {...row, run_token: runToken, heartbeat_at: now, status: 'rendering', image: images[0], params: JSON.parse(row.params_json)};
+      if (toolType === 'three_image_motion') {
+        if (images.length !== 3) throw new InvalidRenderItem('三图微动任务必须包含三张图片');
+        return {...common, toolType, images: images as [ImageRow, ImageRow, ImageRow], request: request as ThreeImageMotionJobInput, effect: null};
+      }
+      return {...common, toolType, images: [images[0]] as [ImageRow], request: request as SingleIntroJobInput, effect: JSON.parse(row.effect_snapshot_json)};
+    } catch (error) {
+      if (!(error instanceof SyntaxError || error instanceof ZodError || error instanceof InvalidRenderItem)) throw error;
+      failItem({...row, run_token: runToken}, new Error('任务数据无法读取，请重新创建该任务：' + getRenderErrorMessage(error)));
+      return undefined;
     }
-    return {...common, toolType, images: [images[0]] as [ImageRow], request: request as SingleIntroJobInput, effect: JSON.parse(row.effect_snapshot_json)};
-  })();
+  }).immediate();
 }
 
 export function updateItemProgress(itemId: string, progress: number, runToken?: string | null, stage = 'rendering') {

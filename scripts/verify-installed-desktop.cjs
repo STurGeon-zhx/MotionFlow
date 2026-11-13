@@ -13,9 +13,19 @@ const output=path.join(root,'.data/installer-smoke',Date.now().toString());fs.mk
 const wait=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 async function poll(read,valid,timeout=120000){const start=Date.now();let value;do{try{value=await read();if(valid(value))return value;}catch{}await wait(200);}while(Date.now()-start<timeout);throw Error('等待超时 '+JSON.stringify(value));}
 async function main(){
+ const startingVersion=process.argv.find(arg=>arg.startsWith('--from='))?.slice(7)||'1.2.0';
+ if(!/^1\.2\.\d+$/.test(startingVersion))throw Error('无效测试起始版本');
  const port=await new Promise(resolve=>{const s=net.createServer();s.listen(0,'127.0.0.1',()=>{const port=s.address().port;s.close(()=>resolve(port));});});
  const env={...process.env,MOTION_APP_DATA_DIR:path.join(output,'application-data'),PATH:process.env.SystemRoot+'\\System32;'+process.env.SystemRoot};
  for(const name of ['MOTION_DESKTOP_REVIEW','ELECTRON_RUN_AS_NODE','NODE_OPTIONS','NODE_PATH'])delete env[name];
+ if(startingVersion!=='1.2.0'){
+  const updates=require('../packaging/code-updates.cjs');
+  const release=path.join(root,'.release','v'+startingVersion);
+  const envelope=JSON.parse(await fsp.readFile(path.join(release,'MotionFlow-Code-Update.json'),'utf8'));
+  const bundle=await fsp.readFile(path.join(release,'MotionFlow-Code-v'+startingVersion+'.bin'));
+  await updates.stageCodeUpdate(envelope,path.join(env.MOTION_APP_DATA_DIR,'updates'),{publicKey:await fsp.readFile(path.join(root,'packaging/update-public-key.pem'),'utf8'),runtimeId:'motionflow-win32-x64-node-runtime-1',currentVersion:'1.2.0',expectedVersion:startingVersion,baseUrl:'https://github.com/STurGeon-zhx/MotionFlow/releases/download/',fetchImpl:async()=>new Response(bundle)});
+  await updates.atomicJson(path.join(env.MOTION_APP_DATA_DIR,'updates','active.json'),{version:startingVersion,healthy:true});
+ }
  const child=spawn(exe,[`--remote-debugging-port=${port}`,'--remote-debugging-address=127.0.0.1'],{cwd:path.dirname(exe),env,windowsHide:false,stdio:['ignore',fs.openSync(path.join(output,'desktop.log'),'a'),fs.openSync(path.join(output,'desktop-error.log'),'a')]});
  let socket;const checks=[];
  const assert=(value,label)=>{if(!value)throw Error(label);checks.push(label);console.log('[installed]',label);};
@@ -29,8 +39,9 @@ async function main(){
   let appUrl=new URL(page.url).origin;
   const cookies=(await rpc('Network.getCookies',{urls:[appUrl]})).cookies.map(c=>c.name+'='+c.value).join('; ');
   const api=async(route,init={})=>{const response=await fetch(appUrl+route,{...init,headers:{cookie:cookies,...init.headers}});const data=await response.json();if(!response.ok||!data.success)throw Error(route+JSON.stringify(data));return data;};
-  const config=await api('/api/runtime-config');assert(config.codeVersion==='1.2.0'&&config.downloadMode==='mp4','正式独立软件启动，版本1.2.0，导出MP4');
-  assert(await js("typeof window.motionFlowDesktop?.selectDownloadDirectory==='function'&&typeof window.motionFlowDesktop?.saveDownloadFile==='function'"),'原生目录选择和成片保存桥接可用');
+  const config=await api('/api/runtime-config');assert(config.codeVersion===startingVersion&&config.downloadMode==='mp4','正式独立软件启动，版本'+startingVersion+'，导出MP4');
+  const nativeBridge=await poll(()=>js("typeof window.motionFlowDesktop?.selectDownloadDirectory==='function'&&typeof window.motionFlowDesktop?.saveDownloadFile==='function'"),Boolean,15000);
+  assert(nativeBridge,'原生目录选择和成片保存桥接可用');
   assert((await api('/api/effects')).effects.length===118,'安装版特效库118条');
   await poll(()=>js("document.querySelectorAll('.effect-card').length"),n=>n===118);
   assert(await js("(()=>{const r=document.querySelector('.preview-shell').getBoundingClientRect();return Math.abs(r.width/r.height-16/9)<.001;})()"),'安装版默认16:9预览');
@@ -55,7 +66,7 @@ async function main(){
    const version=JSON.parse(await fsp.readFile(path.join(root,'package.json'),'utf8')).version;
    const envelope=JSON.parse(await fsp.readFile(path.join(root,'.release','v'+version,'MotionFlow-Code-Update.json'),'utf8'));
    const bundle=await fsp.readFile(path.join(root,'.release','v'+version,'MotionFlow-Code-v'+version+'.bin'));
-   await updates.stageCodeUpdate(envelope,path.join(env.MOTION_APP_DATA_DIR,'updates'),{publicKey:await fsp.readFile(path.join(root,'packaging/update-public-key.pem'),'utf8'),runtimeId:'motionflow-win32-x64-node-runtime-1',currentVersion:'1.2.0',expectedVersion:version,baseUrl:'https://github.com/STurGeon-zhx/MotionFlow/releases/download/',fetchImpl:async()=>new Response(bundle)});
+   await updates.stageCodeUpdate(envelope,path.join(env.MOTION_APP_DATA_DIR,'updates'),{publicKey:await fsp.readFile(path.join(root,'packaging/update-public-key.pem'),'utf8'),runtimeId:'motionflow-win32-x64-node-runtime-1',currentVersion:startingVersion,expectedVersion:version,baseUrl:'https://github.com/STurGeon-zhx/MotionFlow/releases/download/',fetchImpl:async()=>new Response(bundle)});
    await js("void window.motionFlowDesktop.applyUpdate(false).catch(error=>console.error(error))");
    await poll(()=>js("fetch('/api/runtime-config').then(r=>r.json())"),value=>value.codeVersion===version&&value.workerOnline,180000);
    appUrl=new URL(await js('location.href')).origin;
@@ -68,7 +79,20 @@ async function main(){
    await js("document.querySelector('.history-home-link').click();void 0");
    await poll(()=>js("location.pathname==='/'&&document.querySelectorAll('.image-thumb').length===1"),Boolean);
    assert((await api('/api/images')).images[0].id===images[0].id,'点击返回主页不会清空草稿');
-   assert((await js('window.motionFlowDesktop.getUpdateConfig()')).currentVersion===version,'现有1.2.0安装程序应用签名更新后显示新版');
+   assert((await js('window.motionFlowDesktop.getUpdateConfig()')).currentVersion===version,'现有'+startingVersion+'软件应用签名更新后显示新版');
+   const oldHistoryCount=(await api('/api/video-jobs')).jobs.length;
+   for(let index=0;index<requests.length;index++){
+    const id=(await api('/api/video-jobs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(requests[index])})).jobId;
+    const job=await poll(()=>api('/api/video-jobs/'+id).then(x=>x.job),j=>['completed','failed','partial_failed'].includes(j.status),180000);
+    assert(job.status==='completed',index?'升级后三图15秒任务真实生成成功':'升级后单图5秒任务真实生成成功');
+    const response=await fetch(appUrl+job.items[0].downloadUrl,{headers:{cookie:cookies}});
+    assert(response.ok,'升级后成片仍能直接下载MP4');
+    const file=path.join(output,index?'upgraded-three-image.mp4':'upgraded-single-image.mp4');await fsp.writeFile(file,Buffer.from(await response.arrayBuffer()));
+    const meta=await getVideoMetadata(file);assert(meta.codec==='h264'&&meta.fps===30&&meta.width===1280&&meta.height===720&&meta.audioCodec==='aac'&&Math.abs((meta.durationInSeconds||0)-(index?15:5))<.12,'升级后成片画质、帧率、时长和配乐不变');
+   }
+   assert((await api('/api/video-jobs')).jobs.length===oldHistoryCount+2,'新版生成结果与升级前历史任务同时保留');
+   const log=await fsp.readFile(path.join(env.MOTION_APP_DATA_DIR,'worker.log'),'utf8');
+   assert(/调度进程启动 PID=\d+/.test(log),'升级后的代码启用了独立后台监督进程');
   }
   const screen=await rpc('Page.captureScreenshot',{format:'png'});await fsp.writeFile(path.join(output,'installed-window.png'),Buffer.from(screen.data,'base64'));
   await fsp.writeFile(path.join(output,'report.json'),JSON.stringify({passed:true,exe,checks,usedBundledNode:true,appData:env.MOTION_APP_DATA_DIR,checkedAt:new Date().toISOString()},null,2));
